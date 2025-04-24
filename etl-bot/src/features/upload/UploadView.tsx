@@ -32,40 +32,46 @@ export function UploadView() {
     let uploadedCount = 0;
   
     for (const file of files) {
-      const formData = new FormData();
-      formData.append('file', file.file); // ✅ file.file is the actual File object
-
+      // 1️⃣ Get signed URL + object_name
+      const { url, object_name } = await fetch(
+        `http://localhost:8000/api/upload-url?filename=${encodeURIComponent(file.name)}`
+      ).then(res => res.json());
   
-      try {
-        const response = await fetch('http://localhost:8000/api/upload-file', 
-          {
-          method: 'POST',
-          body: formData,
-        });
+      // 2️⃣ Upload the file directly to GCS
+      const uploadResp = await fetch(url, {
+        method: 'PUT',
+        headers: { 'Content-Type': file.type },
+        body: file.file
+      });
+      if (!uploadResp.ok) {
+        console.error("Upload failed:", await uploadResp.text());
+        // don’t call trigger‐etl if the upload didn’t succeed
+      }
   
-        if (response.ok) {
-          uploadedCount++;
-          const percent = Math.round((uploadedCount / totalFiles) * 100);
-          setUploadProgress(percent);
+      // 3️⃣ Tell your backend to trigger the ETL
+      const triggerResp = await fetch("http://localhost:8000/api/trigger-etl", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ object_name })
+      });
+      
+      
   
-          const result = await response.json();
-          console.log('Upload success:', result);
-  
-          // Optional: Handle the processed data here
-          // setProcessedResults([...processedResults, result]);
-        } else {
-          console.error('Upload failed for:', file.name);
-        }
-      } catch (error) {
-        console.error('Error uploading:', file.name, error);
+      if (triggerResp.ok) {
+        uploadedCount++;
+        setUploadProgress(Math.round((uploadedCount / totalFiles) * 100));
+      } else {
+        console.error('Failed to trigger ETL for', file.name);
       }
     }
   
+    // Reset progress indicator after a short delay
     setTimeout(() => {
       setUploadProgress(100);
-      setTimeout(() => setUploadProgress(0), 2000); // Reset progress after short delay
+      setTimeout(() => setUploadProgress(0), 2000);
     }, 200);
   };
+  
 
   
   
