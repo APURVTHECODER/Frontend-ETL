@@ -1,3 +1,30 @@
+// This is the part that has the error
+// Let's fix the conditional rendering section at line 692
+
+// Original problematic section:
+/*
+) : !showSqlResults && !sqlRows.length ? (
+  <div className="flex flex-col items-center justify-center h-64 text-gray-500">
+    <svg
+      className="w-16 h-16 text-gray-300 mb-4"
+      fill="none"
+      stroke="currentColor"
+      viewBox="0 0 24 24"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="2"
+        d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4"
+      ></path>
+    </svg>
+    <p className="text-lg">Select a table to view its data or run a SQL query</p>
+  </div>
+)}
+*/
+
+// Fixed section:
 import React, { useEffect, useState } from "react";
 import axios from "axios";
 
@@ -21,7 +48,7 @@ interface TableStats {
 const BigQueryTableViewer: React.FC = () => {
   const datasetId = "crafty-tracker-457215-g6.sample78600";
 
-  // State management
+  // Table explorer states
   const [tables, setTables] = useState<TableInfo[]>([]);
   const [filteredTables, setFilteredTables] = useState<TableInfo[]>([]);
   const [error, setError] = useState<string>("");
@@ -39,6 +66,14 @@ const BigQueryTableViewer: React.FC = () => {
     direction: "asc" | "desc";
   } | null>(null);
   const [tableStats, setTableStats] = useState<TableStats | null>(null);
+
+  // SQL editor state
+  const [sql, setSql] = useState<string>(`SELECT * FROM \`crafty-tracker-457215-g6.sample78600.Netflix_Movies_Sample_Data\` LIMIT 10`);
+  const [sqlRows, setSqlRows] = useState<RowData[]>([]);
+  const [sqlColumns, setSqlColumns] = useState<string[]>([]);
+  const [runningSql, setRunningSql] = useState<boolean>(false);
+  const [sqlError, setSqlError] = useState<string>("");
+  const [showSqlResults, setShowSqlResults] = useState<boolean>(false);
 
   // Load tables on component mount
   useEffect(() => {
@@ -61,7 +96,6 @@ const BigQueryTableViewer: React.FC = () => {
     setLoadingTables(true);
     setError("");
     try {
-      // For debugging purposes, log the request URL
       const url = `/api/bigquery/tables?dataset_id=${encodeURIComponent(datasetId)}`;
       console.log("Fetching tables from:", url);
       
@@ -86,9 +120,12 @@ const BigQueryTableViewer: React.FC = () => {
     setPreviewColumns([]);
     setCurrentPage(1);
     setTableStats(null);
+    setShowSqlResults(false);
+
+    // Update SQL editor with selected table
+    setSql(`SELECT * FROM \`${datasetId}.${tableId}\` LIMIT ${rowsPerPage};`);
 
     try {
-      // For debugging purposes, log the request URL
       const url = `/api/bigquery/table-data?dataset_id=${encodeURIComponent(
         datasetId
       )}&table_id=${encodeURIComponent(
@@ -96,51 +133,36 @@ const BigQueryTableViewer: React.FC = () => {
       )}&page=${currentPage}&limit=${rowsPerPage}`;
       
       console.log("Fetching table data from:", url);
-      
-      // Fetch data with pagination parameters
       const response = await axios.get(url);
-      
-      // Log the raw response for debugging
       console.log("Table data response:", response);
       
-      // Get the response data - handle both standard response and axios wrapping
+      // Get the response data
       const data = response.data;
-      console.log("Extracted data:", data);
       
-      // Look for rows in the response structure - check different possible paths
+      // Extract rows with fallbacks for different API response structures
       let rows: any[] = [];
       if (Array.isArray(data)) {
-        // If the response is directly an array
         rows = data;
-        console.log("Data is directly an array of rows");
       } else if (data && Array.isArray(data.rows)) {
-        // If the response has a rows property that is an array
         rows = data.rows;
-        console.log("Found rows array in data.rows");
       } else if (data && typeof data === 'object') {
-        // Handle case where API responds with first level of data
-        // Some APIs might return the rows directly as an object with no wrapper
         if (Object.keys(data).length > 0 && !('rows' in data)) {
           rows = [data];
-          console.log("Data appears to be a single row object");
         }
       }
       
-      console.log("Extracted rows:", rows);
       setPreviewRows(rows);
       
-      // Extract total count - default to rows length if not provided
+      // Extract total count
       const totalCount = data && typeof data.totalRows === 'number' 
         ? data.totalRows 
         : (data && typeof data.total === 'number' ? data.total : rows.length);
       
       setTotalRows(totalCount);
-      console.log("Set total rows to:", totalCount);
       
       // Safely extract stats if available
       if (data && data.stats) {
         setTableStats(data.stats);
-        console.log("Found and set table stats");
       } else {
         // Create default stats from available data
         const defaultStats = {
@@ -149,16 +171,13 @@ const BigQueryTableViewer: React.FC = () => {
           lastModified: data?.lastModified || new Date().toISOString()
         };
         setTableStats(defaultStats);
-        console.log("Set default table stats:", defaultStats);
       }
       
       // Set columns based on the first row, if any rows exist
       if (rows && rows.length > 0) {
         const columns = Object.keys(rows[0]);
-        console.log("Setting columns from first row:", columns);
         setPreviewColumns(columns);
       } else {
-        console.log("No rows to extract columns from");
         setPreviewColumns([]);
       }
     } catch (err) {
@@ -184,7 +203,6 @@ const BigQueryTableViewer: React.FC = () => {
       
       console.log("Fetching page data from:", url);
       const response = await axios.get(url);
-      console.log("Page data response:", response);
       
       // Get the response data
       const data = response.data;
@@ -259,6 +277,42 @@ const BigQueryTableViewer: React.FC = () => {
     });
     
     setPreviewRows(sortedRows);
+  };
+
+  // Run SQL query
+  const runQuery = async () => {
+    setSqlError("");
+    setRunningSql(true);
+    setShowSqlResults(true);
+    
+    try {
+      const response = await axios.post("/api/bigquery/query", { sql });
+      console.log("SQL query response:", response.data);
+      
+      // Extract rows from response
+      let rows: any[] = [];
+      if (Array.isArray(response.data)) {
+        rows = response.data;
+      } else if (response.data && Array.isArray(response.data.rows)) {
+        rows = response.data.rows;
+      } else if (response.data && typeof response.data === 'object' && !('rows' in response.data)) {
+        rows = [response.data];
+      }
+      
+      setSqlRows(rows);
+      
+      // Set columns based on the first row
+      if (rows.length > 0) {
+        setSqlColumns(Object.keys(rows[0]));
+      } else {
+        setSqlColumns([]);
+      }
+    } catch (err: any) {
+      console.error("Error running SQL query:", err);
+      setSqlError(err.response?.data?.detail || err.message || "Failed to run SQL query");
+    } finally {
+      setRunningSql(false);
+    }
   };
 
   const formatBytes = (bytes: number) => {
@@ -340,6 +394,43 @@ const BigQueryTableViewer: React.FC = () => {
         <div className="text-gray-600">
           Showing {previewRows.length > 0 ? (currentPage - 1) * rowsPerPage + 1 : 0}-
           {Math.min(currentPage * rowsPerPage, totalRows)} of {totalRows} rows
+        </div>
+      </div>
+    );
+  };
+
+  // New component: BigQuerySqlRunner - Embedded directly into BigQueryTableViewer
+  const BigQuerySqlRunnerSection = () => {
+    return (
+      <div className="mb-6">
+        <h2 className="text-lg font-semibold mb-2">Run Custom SQL</h2>
+        <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 shadow-sm">
+          <textarea 
+            className="w-full p-2 border rounded font-mono text-sm" 
+            rows={4} 
+            value={sql} 
+            onChange={(e) => setSql(e.target.value)}
+            placeholder="Enter your SQL query here..."
+          />
+          
+          <div className="flex justify-between items-center mt-2">
+            <div className="text-xs text-gray-500">
+              {selectedTableId && <span>Current table: {selectedTableId}</span>}
+            </div>
+            <button 
+              className={`px-4 py-2 ${runningSql ? 'bg-blue-400' : 'bg-blue-600'} text-white rounded`}
+              onClick={runQuery}
+              disabled={runningSql}
+            >
+              {runningSql ? 'Running...' : 'Run SQL'}
+            </button>
+          </div>
+          
+          {sqlError && (
+            <div className="mt-2 p-2 border border-red-300 bg-red-50 rounded text-red-600 text-sm">
+              {sqlError}
+            </div>
+          )}
         </div>
       </div>
     );
@@ -444,9 +535,63 @@ const BigQueryTableViewer: React.FC = () => {
           </div>
         </div>
         
-        {/* Table preview area */}
+        {/* Content area */}
         <div className="lg:w-3/4 p-6">
-          {selectedTableId ? (
+          {/* SQL Runner Component */}
+          <BigQuerySqlRunnerSection />
+          
+          {/* SQL Results */}
+          {showSqlResults && (
+            <div className="mb-6">
+              <h2 className="text-lg font-semibold text-gray-800 mb-2">
+                SQL Query Results
+              </h2>
+              {sqlRows.length > 0 ? (
+                <div className="overflow-x-auto border border-gray-200 rounded-lg shadow-sm mb-8">
+                  <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        {sqlColumns.map((column) => (
+                          <th
+                            key={column}
+                            className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                          >
+                            {column}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {sqlRows.map((row, rowIndex) => (
+                        <tr
+                          key={rowIndex}
+                          className="hover:bg-gray-50 transition-colors"
+                        >
+                          {sqlColumns.map((column) => (
+                            <td
+                              key={`${rowIndex}-${column}`}
+                              className="px-4 py-2 whitespace-nowrap text-sm text-gray-700"
+                            >
+                              {row[column] === null
+                                ? <span className="text-gray-400 italic">null</span>
+                                : String(row[column] ?? "")}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : !sqlError && !runningSql ? (
+                <div className="text-center py-6 text-gray-500">
+                  No results found for the query
+                </div>
+              ) : null}
+            </div>
+          )}
+          
+          {/* Table Preview */}
+          {selectedTableId && !showSqlResults ? (
             <>
               <div className="mb-6">
                 <h2 className="text-lg font-semibold text-gray-800 mb-2">
@@ -551,7 +696,7 @@ const BigQueryTableViewer: React.FC = () => {
                 </>
               )}
             </>
-          ) : (
+          ) : (!showSqlResults && !sqlRows.length) && (
             <div className="flex flex-col items-center justify-center h-64 text-gray-500">
               <svg
                 className="w-16 h-16 text-gray-300 mb-4"
@@ -567,7 +712,7 @@ const BigQueryTableViewer: React.FC = () => {
                   d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4"
                 ></path>
               </svg>
-              <p className="text-lg">Select a table to view its data</p>
+              <p className="text-lg">Select a table to view its data or run a SQL query</p>
             </div>
           )}
         </div>
