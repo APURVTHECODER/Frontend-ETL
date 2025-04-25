@@ -5,6 +5,7 @@ import { UploadArea } from './components/UploadArea';
 import { FileList } from './components/FileList';
 import { ProcessingStatus } from './components/ProcessingStatus';
 import { UploadHistory } from './components/UploadHistory'; // Assuming this exists
+import axiosInstance from '@/lib/axios-instance';
 import { ETLFile, ProcessingStage } from './types';
 import axios from 'axios'; // Use axios for easier error handling potentially
 import { useToast } from "@/hooks/use-toast"
@@ -79,7 +80,7 @@ export function UploadView() {
         let signedUrlResponse;
         try {
             // Use axios for better error details potentially
-            signedUrlResponse = await axios.get<{ url: string; object_name: string }>(
+            signedUrlResponse = await axiosInstance.get<{ url: string; object_name: string }>(
                 `/api/upload-url?filename=${encodeURIComponent(file.name)}` // Use relative URL if proxy is set up
             );
             if (!signedUrlResponse.data || !signedUrlResponse.data.url || !signedUrlResponse.data.object_name) {
@@ -109,7 +110,7 @@ export function UploadView() {
         updateFileState(file.id, { progress: 80 });
 
         // 3. Trigger ETL
-        const triggerResp = await axios.post('/api/trigger-etl', { object_name }); // Use relative URL
+        const triggerResp = await axiosInstance.post('/api/trigger-etl', { object_name }); // Use relative URL
 
         if (triggerResp.status !== 200 && triggerResp.status !== 202) { // Check for non-2xx status
              throw new Error(`Failed to trigger processing: ${triggerResp.status} ${triggerResp.data?.detail || ''}`);
