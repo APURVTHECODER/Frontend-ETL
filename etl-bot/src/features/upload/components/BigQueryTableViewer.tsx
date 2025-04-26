@@ -11,8 +11,14 @@ import {
     Loader2, Terminal, Search, Database, BrainCircuit, ListTree, Bookmark,
     Code, Table2, RefreshCw, ChevronLeft, ChevronRight, ChevronsLeft,
     ChevronsRight, Download, SortAsc, SortDesc, ArrowUpDown, Info,
-    BarChart4, Trash2, Copy, GripVertical, Settings2, History
+    BarChart4,
+    LineChart as LineChartIcon, PieChart as PieChartIcon, Dot , Trash2 , GripVertical ,History,Copy 
 } from "lucide-react";
+import {
+    BarChart, Bar, LineChart, Line, PieChart, Pie, ScatterChart, Scatter,
+    XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer, Cell
+} from 'recharts'; // <-- Import Recharts
+
 import {
     Tooltip, TooltipContent, TooltipProvider, TooltipTrigger
 } from "@/components/ui/tooltip";
@@ -38,7 +44,15 @@ interface TableSchema { table_id: string; columns: ColumnInfo[]; }
 interface SchemaResponse { dataset_id: string; tables: TableSchema[]; } // Corrected type
 interface NLQueryResponse { generated_sql?: string | null; error?: string | null; }
 interface QueryHistoryItem { id: string; sql: string; timestamp: string; success: boolean; rowCount?: number; }
-
+interface VizSuggestion {
+    chart_type: 'bar' | 'line' | 'pie' | 'scatter';
+    x_axis_column: string;
+    y_axis_columns: string[];
+    rationale: string;
+}
+interface ActiveVisualizationConfig extends VizSuggestion {
+    // You might add specific display settings here later
+}
 
 const BigQueryTableViewer: React.FC = () => {
     const datasetId = "crafty-tracker-457215-g6.sample78600";
@@ -86,6 +100,16 @@ const BigQueryTableViewer: React.FC = () => {
     const [isResizingEditor, setIsResizingEditor] = useState<boolean>(false);
     const [showNlSection, setShowNlSection] = useState<boolean>(true);
 
+
+
+    const [suggestedCharts, setSuggestedCharts] = useState<VizSuggestion[]>([]);
+    const [activeVisualization, setActiveVisualization] = useState<ActiveVisualizationConfig | null>(null);
+    const [loadingAiSuggestions, setLoadingAiSuggestions] = useState<boolean>(false);
+    const [aiSuggestionError, setAiSuggestionError] = useState<string>("");
+
+
+
+
     // --- Refs ---
     const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
     const editorPaneRef = useRef<HTMLDivElement>(null);
@@ -118,7 +142,143 @@ const BigQueryTableViewer: React.FC = () => {
     useEffect(() => { fetchTables(); fetchSchema(); }, [fetchTables, fetchSchema]);
     useEffect(() => { const lq=tableSearchQuery.toLowerCase(); setFilteredTables(tables.filter(t=>t.tableId.toLowerCase().includes(lq))); }, [tableSearchQuery, tables]);
     useEffect(() => { if(jobResults&&jobId&&!jobError&&!isRunningJob&&jobStatus?.statement_type==='SELECT'){ addToHistory({sql,success:true,rowCount:jobResults.total_rows_in_result_set}); } }, [jobResults, jobId, jobError, isRunningJob, sql, addToHistory, jobStatus?.statement_type]);
+    // --- Effects (Keep existing ones and ADD this new one) ---
+    // ... other useEffect hooks ...
 
+    // --- NEW Effect for Visualization Suggestions ---
+    useEffect(() => {
+        if (jobResults?.schema && jobResults.rows.length > 0) {
+            console.log("Calculating chart suggestions...");
+            const schema = jobResults.schema;
+            const rows = jobResults.rows;
+            const ruleBasedSuggestions: VizSuggestion[] = [];
+
+            // Helper function to check data types
+            const isNumeric = (type: string) => ['INTEGER', 'INT64', 'FLOAT', 'FLOAT64', 'NUMERIC', 'BIGNUMERIC'].includes(type);
+            const isString = (type: string) => type === 'STRING';
+            const isDate = (type: string) => ['DATE', 'DATETIME', 'TIMESTAMP'].includes(type);
+
+            const numericCols = schema.filter(f => isNumeric(f.type)).map(f => f.name);
+            const stringCols = schema.filter(f => isString(f.type)).map(f => f.name);
+            const dateCols = schema.filter(f => isDate(f.type)).map(f => f.name);
+
+            // Rule 1: 1 String + 1+ Numeric -> Bar Chart
+            if (stringCols.length === 1 && numericCols.length >= 1) {
+                ruleBasedSuggestions.push({
+                    chart_type: 'bar',
+                    x_axis_column: stringCols[0],
+                    y_axis_columns: numericCols, // Plot all numeric? Or first one? Let's do all for now
+                    rationale: `Bar chart comparing ${numericCols.join(', ')} across '${stringCols[0]}' categories.`
+                });
+            }
+
+            // Rule 2: 1 Date + 1+ Numeric -> Line Chart
+            if (dateCols.length === 1 && numericCols.length >= 1) {
+                 // Basic check if date values look parsable (optional refinement)
+                 const dateColumnName = dateCols[0];
+                 const looksLikeValidDate = rows.slice(0, 10).every(row => !row[dateColumnName] || !isNaN(Date.parse(row[dateColumnName])));
+
+                 if (looksLikeValidDate) {
+                    ruleBasedSuggestions.push({
+                        chart_type: 'line',
+                        x_axis_column: dateColumnName,
+                        y_axis_columns: numericCols,
+                        rationale: `Line chart tracking ${numericCols.join(', ')} over time ('${dateColumnName}').`
+                    });
+                 } else {
+                    console.warn(`Date column '${dateColumnName}' might contain non-standard date formats. Skipping line chart suggestion.`);
+                 }
+            }
+
+            // Rule 3: 2+ Numeric -> Scatter Plot
+            if (numericCols.length >= 2) {
+                ruleBasedSuggestions.push({
+                    chart_type: 'scatter',
+                    x_axis_column: numericCols[0], // Use first numeric as X
+                    y_axis_columns: [numericCols[1]], // Use second numeric as Y
+                    rationale: `Scatter plot showing relationship between '${numericCols[0]}' and '${numericCols[1]}'.`
+                });
+                // Optionally suggest pairs if more numerics exist
+            }
+
+            // Rule 4: 1 String + 1 Numeric + Low Cardinality -> Pie Chart
+            if (stringCols.length === 1 && numericCols.length === 1) {
+                const categoryCol = stringCols[0];
+                const valueCol = numericCols[0];
+                const uniqueCategories = new Set(rows.map(r => r[categoryCol]));
+                if (uniqueCategories.size > 1 && uniqueCategories.size <= 12) { // Threshold for pie chart usability
+                    ruleBasedSuggestions.push({
+                        chart_type: 'pie',
+                        x_axis_column: categoryCol, // For pie, 'x' is the label/name
+                        y_axis_columns: [valueCol],   // 'y' is the value
+                        rationale: `Pie chart showing the proportion of '${valueCol}' for each '${categoryCol}'.`
+                    });
+                }
+            }
+
+             // --- Fetch AI Suggestions (async) ---
+             const fetchAiSuggestions = async () => {
+                if (!jobResults?.schema) return []; // No schema, no AI suggestion
+                setLoadingAiSuggestions(true);
+                setAiSuggestionError("");
+                try {
+                    const response = await axiosInstance.post<{suggestions: VizSuggestion[], error?: string}>(
+                        '/api/bigquery/suggest-visualization', // Ensure this endpoint exists
+                        {
+                            schema: jobResults.schema,
+                            query_sql: sql, // Send the executed SQL
+                            result_sample: jobResults.rows.slice(0, 5) // Send a small sample
+                        }
+                    );
+                    if (response.data.error) {
+                        setAiSuggestionError(`AI Error: ${response.data.error}`);
+                        return [];
+                    }
+                    // TODO: Maybe filter/validate AI suggestions? Ensure columns exist etc.
+                    console.log("AI Suggestions Received:", response.data.suggestions);
+                    return response.data.suggestions || [];
+                } catch (error) {
+                    console.error("Error fetching AI suggestions:", error);
+                    setAiSuggestionError(`Failed to get AI suggestions: ${getErrorMessage(error)}`);
+                    return [];
+                } finally {
+                    setLoadingAiSuggestions(false);
+                }
+             };
+
+            // Combine rule-based and fetch AI ones
+             fetchAiSuggestions().then(aiSuggestions => {
+                 // Basic de-duplication based on type and primary columns
+                 const combined = [...ruleBasedSuggestions];
+                 aiSuggestions.forEach(aiSugg => {
+                     if (!combined.some(rbSugg =>
+                            rbSugg.chart_type === aiSugg.chart_type &&
+                            rbSugg.x_axis_column === aiSugg.x_axis_column &&
+                            rbSugg.y_axis_columns[0] === aiSugg.y_axis_columns[0] // Simple check
+                         )) {
+                         combined.push({...aiSugg, rationale: aiSugg.rationale ?? `AI suggested ${aiSugg.chart_type} chart.` }); // Add default rationale if missing
+                     }
+                 });
+                 console.log("Final combined suggestions:", combined);
+                 setSuggestedCharts(combined);
+                 // Optionally auto-select the first suggestion if none active
+                 // if (!activeVisualization && combined.length > 0) {
+                 //    setActiveVisualization(combined[0]);
+                 //    setCurrentOutputTab('visualize');
+                 // }
+             });
+
+
+        } else {
+            // Clear suggestions if no results
+            setSuggestedCharts([]);
+            setActiveVisualization(null);
+            // If the visualize tab was active, switch back
+            if (currentOutputTab === 'visualize') {
+                setCurrentOutputTab('results'); // Or 'data' if preferred fallback
+            }
+        }
+    }, [jobResults, sql, getErrorMessage]); // Add sql dependency for AI context
     // Editor resizing logic
     const startResizing = useCallback((mouseDownEvent: React.MouseEvent) => { setIsResizingEditor(true); mouseDownEvent.preventDefault(); }, []);
     useEffect(() => { const handleMouseMove=(e: MouseEvent)=>{if(!isResizingEditor||!editorPaneRef.current)return; const top=editorPaneRef.current.getBoundingClientRect().top; const newH=e.clientY-top; setEditorPaneHeight(Math.max(100,Math.min(newH,window.innerHeight*0.7)));}; const handleMouseUp=()=>setIsResizingEditor(false); if(isResizingEditor){window.addEventListener('mousemove',handleMouseMove); window.addEventListener('mouseup',handleMouseUp);} return()=>{window.removeEventListener('mousemove',handleMouseMove); window.removeEventListener('mouseup',handleMouseUp);}; }, [isResizingEditor]);
@@ -427,39 +587,530 @@ const BigQueryTableViewer: React.FC = () => {
     };
 
     const renderOutputPane = () => {
+        // Determine if visualize tab should be enabled
+        const canVisualize = suggestedCharts.length > 0 || activeVisualization !== null;
+
         return (
             <div className="flex-grow overflow-hidden flex flex-col bg-background">
-                 {/* Status Bar */}
+                 {/* Status Bar (keep as is) */}
                  {jobId && !isRunningJob && (
-                     <div className="p-1.5 px-3 border-b bg-card flex-shrink-0 text-xs flex items-center justify-between gap-2">
-                        {jobStatus && (
-                            <div className="flex items-center gap-3 truncate">
-                                <span className={`font-medium ${jobStatus.state === 'DONE' && !jobStatus.error_result ? 'text-green-600 dark:text-green-400' : jobStatus.error_result ? 'text-red-600 dark:text-red-400' : 'text-yellow-600 dark:text-yellow-400'}`}>
-                                    {jobStatus.error_result ? 'Failed' : jobStatus.state}
-                                </span>
-                                <Separator orientation="vertical" className="h-3"/>
-                                <span className="text-muted-foreground truncate" title={jobId}>Job: {jobId.split('-')[0]}...</span>
-                                {jobStatus.end_time && <span className="text-muted-foreground hidden md:inline">Finished: {formatDate(jobStatus.end_time)}</span>}
-                                {jobStatus.total_bytes_processed !== null && jobStatus.total_bytes_processed !== undefined && <span className="text-muted-foreground hidden lg:inline">~{formatBytes(jobStatus.total_bytes_processed)}</span>}
-                                {jobStatus.state === 'DONE' && !jobStatus.error_result && jobStatus.num_dml_affected_rows !== null && jobStatus.num_dml_affected_rows !== undefined && (<span className="text-green-600 dark:text-green-400">{jobStatus.num_dml_affected_rows.toLocaleString()} rows affected</span>)}
-                             </div>
-                        )}
-                         {jobError && !isRunningJob && <span className="text-red-600 dark:text-red-400 truncate flex-shrink-0 ml-auto pl-2" title={jobError}>Error: {jobError.split(':')[0]}...</span>}
-                     </div>
-                 )}
+  <div className="px-4 py-1 text-xs text-muted-foreground">
+    Job {jobId} finished successfully.
+  </div>
+)}
+
                 <Tabs value={currentOutputTab} onValueChange={setCurrentOutputTab} className="flex-grow flex flex-col overflow-hidden">
-                    {/* Tabs List uses default theme styles */}
-                    <TabsList className="mx-3 mt-2 mb-1 h-8 justify-start bg-muted p-0.5 rounded-md">
+                    <TabsList className="mx-3 mt-2 mb-1 h-8 justify-start bg-muted p-0.5 rounded-md flex-shrink-0">
                         <TabsTrigger value="data" className="text-xs h-7 px-3 data-[state=active]:bg-background data-[state=active]:shadow-sm rounded-sm"><Table2 className="mr-1.5 h-3.5 w-3.5"/>Preview</TabsTrigger>
                         <TabsTrigger value="results" className="text-xs h-7 px-3 data-[state=active]:bg-background data-[state=active]:shadow-sm rounded-sm" disabled={!jobId && !jobResults}><ListTree className="mr-1.5 h-3.5 w-3.5"/>Results</TabsTrigger>
-                    </TabsList>
-                    <TabsContent value="data" className="flex-grow mt-0 overflow-hidden">
+                        {/* --- ADDED VISUALIZE TAB --- */}
+                        <TabsTrigger
+                             value="visualize"
+                             className="text-xs h-7 px-3 data-[state=active]:bg-background data-[state=active]:shadow-sm rounded-sm"
+                             disabled={!canVisualize || !jobResults || jobResults.rows.length === 0} // Disable if no results or suggestions
+                         >
+                           <BarChart4 className="mr-1.5 h-3.5 w-3.5"/>Visualize {/* Use a generic chart icon */}
+                        </TabsTrigger>
+                     </TabsList>
+                    {/* Content areas */}
+                     <TabsContent value="data" className="flex-grow mt-0 overflow-hidden">
                         {renderTablePreview()}
-                    </TabsContent>
+                     </TabsContent>
                     <TabsContent value="results" className="flex-grow mt-0 overflow-hidden">
-                        {renderJobResults()}
+                        {/* We will move the table rendering logic out slightly */}
+                         {renderResultsContent()}
+                    </TabsContent>
+                     {/* --- ADDED VISUALIZE CONTENT --- */}
+                    <TabsContent value="visualize" className="flex-grow mt-0 overflow-hidden bg-card">
+                        {renderChartVisualization()}
                     </TabsContent>
                 </Tabs>
+            </div>
+        );
+    };
+
+    // --- Refactor renderJobResults slightly ---
+    // This will contain the suggestions + table (or message if no results)
+    // --- Refactor renderJobResults slightly ---
+    // This will contain the suggestions + table (or message if no results)
+    const renderResultsContent = () => {
+        // Existing initial checks from renderJobResults
+        // --- REPLACE PLACEHOLDER COMMENTS WITH ACTUAL JSX ---
+        if (isRunningJob && jobId) return ( // <--- Fix potentially missed here
+            <div className="flex justify-center items-center h-full p-4">
+                <div className="text-center">
+                    <Loader2 className="h-8 w-8 animate-spin mx-auto mb-3 text-primary"/>
+                    <p className="text-lg font-medium mb-1 text-foreground">Running Query...</p>
+                    <p className="text-sm text-muted-foreground">Job ID: {jobId}</p>
+                </div>
+            </div>
+        );
+        if (jobError) return ( // <--- Fix potentially missed here
+            <Alert variant="destructive" className="m-4">
+                <Terminal className="h-4 w-4"/>
+                <AlertTitle>Query Error</AlertTitle>
+                <AlertDescription>
+                    <p>{jobError}</p>
+                    <Button onClick={submitSqlJob} variant="outline" size="sm" className="mt-3 text-xs h-7">
+                        <RefreshCw className="mr-1.5 h-3 w-3"/>Try Again
+                    </Button>
+                </AlertDescription>
+            </Alert>
+        );
+        if (loadingResults) return ( // <--- Fix potentially missed here
+             <div className="flex justify-center items-center h-full p-4">
+                <div className="text-center">
+                    <Loader2 className="h-8 w-8 animate-spin mx-auto mb-3 text-primary"/>
+                    <p className="text-sm text-muted-foreground">Loading results...</p>
+                 </div>
+             </div>
+        );
+        if (resultsError) return ( // <--- Fix potentially missed here
+            <Alert variant="destructive" className="m-4">
+                <Terminal className="h-4 w-4"/>
+                <AlertTitle>Results Error</AlertTitle>
+                <AlertDescription>{resultsError}</AlertDescription>
+                 {/* Optionally add a retry button for fetching results? */}
+             </Alert>
+        );
+
+        // --- Ensure jobResults exists before proceeding ---
+        if (!jobResults) return ( // Check if jobResults itself is null/undefined
+            <div className="flex items-center justify-center h-full text-muted-foreground p-6">
+                <div className="text-center">
+                     <ListTree className="h-12 w-12 mx-auto mb-4 opacity-20"/>
+                     <h3 className="text-lg font-medium mb-2 text-foreground">No Query Results</h3>
+                     <p className="text-sm">Run a query using the editor above, or previous results may have failed to load.</p>
+                 </div>
+            </div>
+        );
+
+        // Render this only if results exist but rows are empty
+        if (jobResults.rows.length === 0) return ( // Check if rows array is empty
+            <div className="flex items-center justify-center h-full text-muted-foreground p-6">
+                <div className="text-center">
+                    <Table2 className="h-12 w-12 mx-auto mb-4 opacity-20"/>
+                    <h3 className="text-lg font-medium mb-2 text-foreground">Query Returned No Rows</h3>
+                     {jobResults.total_rows_in_result_set !== undefined && jobResults.total_rows_in_result_set > 0 && (
+                         <p className="text-sm">{jobResults.total_rows_in_result_set.toLocaleString()} row(s) affected (DML)</p>
+                    )}
+                 </div>
+             </div>
+        );
+
+        // --- DEFINE renderResultsTable INSIDE renderResultsContent ---
+        const renderResultsTable = () => {
+            // You need to check jobResults.schema exists *before* accessing it
+            const cols = jobResults.schema ? jobResults.schema.map(f => f.name) : (jobResults.rows.length > 0 ? Object.keys(jobResults.rows[0]) : []);
+
+            if (cols.length === 0) {
+                // Handle case where schema might be missing AND rows are empty,
+                // though the previous check should catch empty rows. Safety check.
+                return <p className="p-4 text-orange-500">Could not determine result columns.</p>;
+            }
+
+            return (
+                <div className="flex-grow overflow-hidden border rounded-md bg-card mt-2"> {/* Added mt-2 */}
+                   <ScrollArea className="h-full">
+                        <table className="w-full text-xs">
+                           <thead className="sticky top-0 bg-muted z-10">
+                               {/* Ensure schema exists before trying to add tooltips */}
+                               <tr>{cols.map(c => (<th key={c} className="px-2 py-1.5 text-left font-medium text-muted-foreground border-b border-r last:border-r-0">
+                                    <div className="flex items-center" title={c}><span className="truncate max-w-32">{c}</span>
+                                         {jobResults.schema && ( // Conditionally render tooltip
+                                             <TooltipProvider delayDuration={300}><Tooltip><TooltipTrigger asChild>
+                                                 <Info className="ml-1 h-3 w-3 text-muted-foreground/50 hover:text-muted-foreground"/>
+                                             </TooltipTrigger><TooltipContent className="text-xs">
+                                                    Type: {jobResults.schema.find(f => f.name === c)?.type ?? '?'}<br/>
+                                                     Mode: {jobResults.schema.find(f => f.name === c)?.mode ?? '?'}
+                                                 </TooltipContent></Tooltip></TooltipProvider>
+                                        )}
+                                     </div>
+                                 </th>))}</tr>
+                            </thead>
+                            <tbody className="font-mono divide-y divide-border text-foreground">
+                                 {jobResults.rows.map((r,i)=>(<tr key={i} className="hover:bg-muted/50">{cols.map(c=>(<td key={c} className="px-2 py-1 max-w-40 truncate border-r last:border-r-0" title={String(r[c]??null)}>{r[c]!=null?String(r[c]):<span className="italic text-muted-foreground">null</span>}</td>))}</tr>))}
+                             </tbody>
+                        </table>
+                    </ScrollArea>
+                </div>
+            );
+        };
+        // --- End of renderResultsTable definition ---
+
+        // --- MAIN RETURN for renderResultsContent ---
+        return (
+            <div className="h-full flex flex-col p-3">
+                 {/* --- METADATA & BUTTONS --- */}
+                 <div className="mb-2 flex justify-between items-center flex-shrink-0 flex-wrap gap-y-1">
+                    {/* Metadata Badges... */}
+                    <div className="flex items-center gap-2 flex-wrap">
+                         {/* Ensure jobId exists */}
+                        {jobId && <Badge variant="outline" className="font-mono text-xs" title={jobId}>Job: {jobId.split('-')[0]}...</Badge>}
+                         {jobResults.total_rows_in_result_set !== undefined && (<Badge variant="secondary" className="text-xs">{jobResults.total_rows_in_result_set.toLocaleString()} row(s)</Badge>)}
+                        {jobStatus?.total_bytes_processed !== undefined && (<Badge variant="secondary" className="text-xs">~{formatBytes(jobStatus.total_bytes_processed)}</Badge>)}
+                     </div>
+                     {/* Action Buttons... */}
+                     <div className="flex gap-1">
+                        <Button variant="outline" size="xs" onClick={submitSqlJob} className="h-7"><RefreshCw className="mr-1 h-3 w-3"/>Run Again</Button>
+                         <Button variant="outline" size="xs" onClick={() => { console.warn("Export not implemented yet"); }} className="h-7"><Download className="mr-1 h-3 w-3"/>Export</Button>
+                     </div>
+                </div>
+
+                 {/* --- SUGGESTIONS SECTION --- */}
+                {suggestedCharts.length > 0 && (
+                    <div className="pb-2 border-b mb-2 flex-shrink-0">
+                         <h4 className="font-semibold mb-1.5 text-xs flex items-center gap-1.5 text-muted-foreground">
+                             {loadingAiSuggestions ? <Loader2 className="h-3 w-3 animate-spin"/> : <BrainCircuit className="h-3.5 w-3.5 text-primary/80"/>}
+                            Chart Suggestions
+                        </h4>
+                         {aiSuggestionError && <p className="text-xs text-destructive mb-1">{aiSuggestionError}</p>}
+                         <div className="flex flex-wrap gap-1.5">
+                             {suggestedCharts.map((suggestion, index) => (
+                                 <Button
+                                    key={`${suggestion.chart_type}-${index}`}
+                                    variant="outline"
+                                     size="xs"
+                                     onClick={() => {
+                                        setActiveVisualization(suggestion);
+                                         setCurrentOutputTab('visualize');
+                                     }}
+                                     title={suggestion.rationale}
+                                     className="h-6 text-xs"
+                                 >
+                                     {suggestion.chart_type === 'bar' && <BarChart4 className="mr-1 h-3 w-3"/>}
+                                    {suggestion.chart_type === 'line' && <LineChartIcon className="mr-1 h-3 w-3"/>}
+                                     {suggestion.chart_type === 'pie' && <PieChartIcon className="mr-1 h-3 w-3"/>}
+                                     {suggestion.chart_type === 'scatter' && <Dot className="mr-1 h-3 w-3"/>}
+                                     {suggestion.chart_type.charAt(0).toUpperCase() + suggestion.chart_type.slice(1)}
+                                </Button>
+                             ))}
+                        </div>
+                     </div>
+                 )}
+
+                 {/* --- RESULTS TABLE --- */}
+                 {renderResultsTable()}
+
+
+                 {/* --- LOAD MORE BUTTON --- */}
+                 {jobResults.next_page_token && (<div className="mt-2 flex justify-center flex-shrink-0">
+                     <Button variant="outline" size="sm" onClick={()=>jobId&&jobLocation&&fetchJobResults(jobId,jobLocation,jobResults.next_page_token)} disabled={loadingResults} className="text-xs h-7">{loadingResults?<Loader2 className="mr-1.5 h-3 w-3 animate-spin"/>:<></>}Load More</Button>
+                 </div>)}
+             </div>
+        );
+    };
+      
+
+    // --- NEW Render Function for Charts ---
+    const renderChartVisualization = () => {
+        if (!activeVisualization) {
+            return (
+                <div className="flex items-center justify-center h-full text-muted-foreground p-6">
+                     <div className="text-center">
+                        <BarChart4 className="h-12 w-12 mx-auto mb-4 opacity-20"/>
+                         <h3 className="text-lg font-medium mb-2">Select a Visualization</h3>
+                         <p className="text-sm">Choose a suggested chart from the 'Results' tab to visualize the data.</p>
+                    </div>
+                </div>
+            );
+        }
+
+        if (!jobResults || jobResults.rows.length === 0) {
+             return (
+                <div className="flex items-center justify-center h-full text-muted-foreground">
+                     <p>No data available to visualize.</p>
+                 </div>
+            );
+        }
+
+        const { chart_type, x_axis_column, y_axis_columns } = activeVisualization;
+        const data = jobResults.rows;
+
+        // Define some colors for variety (especially for pie/multi-bar/line)
+        const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8', '#82Ca9D'];
+
+        const renderChart = () => {
+             // Ensure Y-axis columns exist in the data (simple check)
+            const validYCols = y_axis_columns.filter(col => data[0]?.hasOwnProperty(col));
+            if (validYCols.length === 0) {
+                return <p className="text-red-500 p-4">Error: Specified Y-axis column(s) not found in data.</p>;
+            }
+            // Ensure X-axis column exists
+            if (!data[0]?.hasOwnProperty(x_axis_column)) {
+                return <p className="text-red-500 p-4">Error: Specified X-axis column '{x_axis_column}' not found in data.</p>;
+            }
+
+
+            switch (chart_type) {
+                case 'bar':
+                    return (
+                        <ResponsiveContainer width="100%" height="100%">
+                            <BarChart data={data} margin={{ top: 5, right: 20, left: 10, bottom: 50 }}>
+                                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))"/>
+                                <XAxis
+                                     dataKey={x_axis_column}
+                                     angle={-45} // Angle labels if they might overlap
+                                    textAnchor="end"
+                                    height={60} // Adjust height for angled labels
+                                    interval={0} // Show all labels (can be 'preserveEnd' or number)
+                                    tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
+                                    stroke="hsl(var(--muted-foreground))"
+                                 />
+                                <YAxis tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} stroke="hsl(var(--muted-foreground))"/>
+                                 <RechartsTooltip
+                                     cursor={{ fill: 'hsla(var(--muted), 0.5)' }}
+                                     contentStyle={{
+                                        background: 'hsl(var(--background))',
+                                        borderColor: 'hsl(var(--border))',
+                                        borderRadius: 'var(--radius)',
+                                         fontSize: '12px',
+                                         color: 'hsl(var(--foreground))',
+                                    }}
+                                 />
+                                <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '10px' }} />
+                                 {/* Create a Bar for each Y column */}
+                                {validYCols.map((yCol, index) => (
+                                    <Bar
+                                        key={yCol}
+                                        dataKey={yCol}
+                                        fill={COLORS[index % COLORS.length]}
+                                         // Convert value to number for the Bar chart
+                                        // Assumes the data is already numeric-like; add parsing if needed
+                                        // formatter={(value) => Number(value) || 0} // Example formatter
+                                     />
+                                 ))}
+                             </BarChart>
+                        </ResponsiveContainer>
+                     );
+                case 'line':
+                    // Attempt to parse date/time for better axis formatting
+                    const parseDate = (d: any) => {
+                         if (d === null || d === undefined) return null;
+                         try {
+                            const date = new Date(d);
+                             return isNaN(date.getTime()) ? null : date.getTime(); // Return timestamp for Recharts
+                        } catch {
+                             return null; // Handle potential errors if Date.parse fails
+                         }
+                     };
+                     const formattedDataLine = data
+                        .map(row => ({ ...row, [x_axis_column]: parseDate(row[x_axis_column]) }))
+                         .filter(row => row[x_axis_column] !== null) // Filter out unparsable dates
+                        .sort((a, b) => a[x_axis_column] - b[x_axis_column]); // Sort by parsed date
+
+                    if (formattedDataLine.length === 0) {
+                        return <p className="p-4 text-orange-500">Could not parse dates in column '{x_axis_column}' for line chart.</p>;
+                     }
+
+                    return (
+                         <ResponsiveContainer width="100%" height="100%">
+                             <LineChart data={formattedDataLine} margin={{ top: 5, right: 20, left: 10, bottom: 20 }}>
+                                 <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))"/>
+                                 <XAxis
+                                    dataKey={x_axis_column}
+                                     type="number" // Because we converted to timestamp
+                                    domain={['dataMin', 'dataMax']}
+                                    scale="time"
+                                     tickFormatter={(unixTime) => new Date(unixTime).toLocaleDateString()} // Format timestamp back to readable date
+                                    tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
+                                    stroke="hsl(var(--muted-foreground))"
+                                />
+                                <YAxis tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} stroke="hsl(var(--muted-foreground))"/>
+                                <RechartsTooltip
+                                    labelFormatter={(unixTime) => new Date(unixTime).toLocaleString()}
+                                     contentStyle={{ /* ... tooltip style */ }}
+                                />
+                                 <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '10px' }} />
+                                 {validYCols.map((yCol, index) => (
+                                    <Line
+                                        key={yCol}
+                                        type="monotone"
+                                        dataKey={yCol}
+                                         stroke={COLORS[index % COLORS.length]}
+                                         strokeWidth={2}
+                                        dot={false} // Don't show dots for many points
+                                         activeDot={{ r: 6 }}
+                                         // formatter={(value) => Number(value) || 0} // Optional conversion
+                                     />
+                                ))}
+                            </LineChart>
+                         </ResponsiveContainer>
+                     );
+                 case 'pie':
+                    // Needs aggregation if multiple rows have the same category
+                    const aggregatedPieData: { [key: string]: number } = {};
+                     data.forEach(row => {
+                        const category = String(row[x_axis_column] ?? 'Unknown');
+                        const value = Number(row[validYCols[0]]); // Assuming first Y col is the value
+                        if (!isNaN(value)) {
+                             aggregatedPieData[category] = (aggregatedPieData[category] || 0) + value;
+                         }
+                    });
+                     const formattedDataPie = Object.entries(aggregatedPieData).map(([name, value]) => ({ name, value }));
+
+                    if (formattedDataPie.length === 0) {
+                         return <p className="p-4 text-orange-500">No valid numeric data for pie chart.</p>;
+                    }
+
+                     return (
+                         <ResponsiveContainer width="100%" height="100%">
+                             <PieChart>
+                                 <Pie
+                                    data={formattedDataPie}
+                                     cx="50%"
+                                     cy="50%"
+                                     labelLine={false}
+                                     // label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`} // Example label
+                                     outerRadius={Math.min(window.innerWidth, window.innerHeight) * 0.25} // Adjust radius
+                                     fill="#8884d8"
+                                     dataKey="value"
+                                     nameKey="name"
+                                     label={{ fontSize: 10, fill: 'hsl(var(--foreground))' }}
+                                 >
+                                    {formattedDataPie.map((entry, index) => (
+                                         <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                                     ))}
+                                 </Pie>
+                                 <RechartsTooltip contentStyle={{ /* ... tooltip style */ }}/>
+                                 <Legend wrapperStyle={{ fontSize: '11px' }}/>
+                             </PieChart>
+                         </ResponsiveContainer>
+                    );
+                    case 'scatter':
+                        // Get the schema safely from jobResults
+                        const currentSchema = jobResults?.schema; // Optional chaining
+   
+                        // Helper function if not already defined in scope (e.g., passed down or defined higher)
+                        const isString = (type: string) => type === 'STRING';
+   
+                        // Prepare data, ensuring both x and y are numbers
+                        const formattedDataScatter = data
+                            .map(row => {
+                                // --- CORRECTED LINE ---
+                                // Find the name of the first string column in the current schema
+                                const labelColumnName = currentSchema?.find(f => isString(f.type))?.name ?? x_axis_column; // Fallback to x-axis col if no string col found
+   
+                                return {
+                                   x: Number(row[x_axis_column]),
+                                    y: Number(row[validYCols[0]]), // Use the first VALID Y column
+                                    // Get the actual label value using the determined column name
+                                   label: row[labelColumnName]
+                                };
+                            })
+                            .filter(point => !isNaN(point.x) && !isNaN(point.y));
+   
+   
+                       if (formattedDataScatter.length === 0) {
+                            return <p className="p-4 text-orange-500">No valid numeric pairs for scatter plot.</p>;
+                       }
+   
+                        // Ensure we have a valid Y column name for the axis label
+                        const yAxisName = validYCols.length > 0 ? validYCols[0] : 'Y-Value';
+   
+                       return (
+                            <ResponsiveContainer width="100%" height="100%">
+                                <ScatterChart margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
+                                   <CartesianGrid stroke="hsl(var(--border))"/>
+                                    <XAxis
+                                        type="number"
+                                       dataKey="x"
+                                        name={x_axis_column} // Set name for tooltip reference
+                                        tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
+                                        stroke="hsl(var(--muted-foreground))"
+                                    />
+                                    <YAxis
+                                        type="number"
+                                        dataKey="y"
+                                        name={yAxisName} // Set name for tooltip reference
+                                        tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
+                                        stroke="hsl(var(--muted-foreground))"
+                                    />
+                                    {/* Tooltip content style */}
+                                   <RechartsTooltip
+                                       cursor={{ strokeDasharray: '3 3' }}
+                                       contentStyle={{
+                                           background: 'hsl(var(--background))',
+                                           borderColor: 'hsl(var(--border))',
+                                           borderRadius: 'var(--radius)',
+                                            fontSize: '12px',
+                                            color: 'hsl(var(--foreground))',
+                                       }}
+                                       // Use formatter to potentially show label or format values
+                                       formatter={(value: any, name: string, props: any) => {
+                                           // 'name' will be the dataKey ('x' or 'y')
+                                           // 'props.payload' contains the full data point {x, y, label}
+                                           const pointLabel = props.payload?.label;
+                                           const axisName = name === 'x' ? x_axis_column : yAxisName;
+                                            return [`${axisName}: ${value}`, pointLabel ? `Label: ${pointLabel}`: null];
+                                       }}
+                                    />
+                                    {/* Scatter component using the calculated yAxisName */}
+                                    <Scatter name={yAxisName} data={formattedDataScatter} fill={COLORS[0]}/>
+                               </ScatterChart>
+                           </ResponsiveContainer>
+                       );
+                    // ... other cases ...
+
+                    if (formattedDataScatter.length === 0) {
+                         return <p className="p-4 text-orange-500">No valid numeric pairs for scatter plot.</p>;
+                    }
+
+                    return (
+                         <ResponsiveContainer width="100%" height="100%">
+                             <ScatterChart margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
+                                <CartesianGrid stroke="hsl(var(--border))"/>
+                                 <XAxis
+                                     type="number"
+                                     dataKey="x"
+                                     name={x_axis_column}
+                                     tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
+                                     stroke="hsl(var(--muted-foreground))"
+                                 />
+                                 <YAxis
+                                     type="number"
+                                     dataKey="y"
+                                     name={validYCols[0]}
+                                     tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
+                                     stroke="hsl(var(--muted-foreground))"
+                                 />
+                                <RechartsTooltip cursor={{ strokeDasharray: '3 3' }} contentStyle={{ /* ... tooltip style */ }}/>
+                                 <Scatter name="Data Points" data={formattedDataScatter} fill={COLORS[0]}>
+                                     {/* You can add labeling here if needed */}
+                                     {/* <LabelList dataKey="label" position="right" /> */}
+                                </Scatter>
+                            </ScatterChart>
+                        </ResponsiveContainer>
+                    );
+                 default:
+                    return <p>Unsupported chart type: {chart_type}</p>;
+             }
+        };
+
+        return (
+            <div className="h-full flex flex-col p-3">
+                <div className="flex justify-between items-center mb-2 flex-shrink-0">
+                     <h3 className="text-base font-semibold capitalize flex items-center gap-2">
+                        {activeVisualization.chart_type === 'bar' && <BarChart4 className="h-4 w-4 text-primary"/>}
+                         {activeVisualization.chart_type === 'line' && <LineChartIcon className="h-4 w-4 text-primary"/>}
+                         {activeVisualization.chart_type === 'pie' && <PieChartIcon className="h-4 w-4 text-primary"/>}
+                         {activeVisualization.chart_type === 'scatter' && <Dot className="h-4 w-4 text-primary"/>}
+                        {activeVisualization.chart_type} Chart
+                     </h3>
+                     {/* Maybe add buttons here to change chart type or config? */}
+                     <Button
+                         variant="ghost"
+                         size="sm"
+                         onClick={() => setActiveVisualization(null)} // Button to clear current viz
+                         className="text-xs h-7"
+                    >
+                        Close Chart
+                    </Button>
+                 </div>
+                 <p className="text-xs text-muted-foreground mb-2 flex-shrink-0">{activeVisualization.rationale}</p>
+                 <div className="flex-grow border rounded-md overflow-hidden bg-background">
+                    {renderChart()}
+                </div>
             </div>
         );
     };
