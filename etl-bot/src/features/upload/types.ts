@@ -1,4 +1,5 @@
-export type FileStatus = 'pending' | 'uploading' | 'completed' | 'error';
+// src/features/upload/types.ts
+// (Make sure this type definition exists and includes errorMessage)
 
 export type ProcessingStage = 'idle' | 'uploading' | 'processing' | 'completed';
 
@@ -8,12 +9,15 @@ export interface ETLFile {
   name: string;
   size: number;
   type: string;
-  status: FileStatus;
-  progress: number;
-  uploadedAt: Date;
+  status: 'pending' | 'uploading' | 'completed' | 'error' | 'processing'; // Added 'processing'
+  progress: number; // Percentage 0-100
+  uploadedAt?: Date; // Optional: When added/uploaded
   errorMessage: string | null;
+  // Optional: Store the GCS object name if needed later
+  gcsObjectName?: string;
 }
 
+// Keep HistoryItem if used by UploadHistory, adjust if needed
 export interface HistoryItem {
   id: string;
   filename: string;
