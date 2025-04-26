@@ -12,4 +12,15 @@ export default defineConfig({
   optimizeDeps: {
     exclude: ['lucide-react'],
   },
+  server: {
+    port: 5173, // your Vite dev port
+    proxy: {
+      // proxy all /api calls to FastAPI running on localhost:8000
+      '/api': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+        secure: false,
+      },
+    },
+  },
 });
