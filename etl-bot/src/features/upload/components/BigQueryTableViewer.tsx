@@ -5,6 +5,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import axiosInstance from '@/lib/axios-instance';
+import { ChatbotWindow } from "@/components/chatbot/ChatbotWindow";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
@@ -13,7 +14,8 @@ import {
     ChevronsRight, Download, SortAsc, SortDesc, ArrowUpDown, Info,
     BarChart4,
     LineChart as LineChartIcon, PieChart as PieChartIcon, Dot , Trash2 , GripVertical ,History,Copy,
-    ListFilter // Added Filter icon
+    ListFilter, // Added Filter icon
+    MessageSquare,X,
 } from "lucide-react";
 import {
     BarChart, Bar, LineChart, Line, PieChart, Pie, ScatterChart, Scatter,
@@ -104,7 +106,7 @@ const BigQueryTableViewer: React.FC = () => {
     const [editorPaneHeight, setEditorPaneHeight] = useState<number>(200);
     const [isResizingEditor, setIsResizingEditor] = useState<boolean>(false);
     const [showNlSection, setShowNlSection] = useState<boolean>(true);
-
+    const [isChatOpen, setIsChatOpen] = useState<boolean>(false); // State for chatbot visibility
     const [suggestedCharts, setSuggestedCharts] = useState<VizSuggestion[]>([]);
     const [activeVisualization, setActiveVisualization] = useState<ActiveVisualizationConfig | null>(null);
     const [loadingAiSuggestions, setLoadingAiSuggestions] = useState<boolean>(false);
@@ -1312,7 +1314,30 @@ const BigQueryTableViewer: React.FC = () => {
                     {renderEditorPane()}
                     {renderOutputPane()} {/* This renders Tabs, which includes FilterControls contextually */}
                 </div>
-            </div>
+  {/* --- Chatbot Toggle Button --- */}
+  <Tooltip>
+                    <TooltipTrigger asChild>
+                        <Button
+                            variant="secondary" // Or "default" or "outline"
+                            size="icon"
+                            className="fixed bottom-4 left-4 z-50 rounded-full h-12 w-12 shadow-lg" // Positioned bottom-left
+                            onClick={() => setIsChatOpen(prev => !prev)}
+                        >
+                           {isChatOpen ? <X className="h-6 w-6" /> : <MessageSquare className="h-6 w-6" />}
+                        </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="right">
+                       {isChatOpen ? 'Close Chat' : 'Open Chat Assistant'}
+                    </TooltipContent>
+                </Tooltip>
+
+                {/* --- Chatbot Window (Conditionally Rendered) --- */}
+                <ChatbotWindow
+                    isOpen={isChatOpen}
+                    onClose={() => setIsChatOpen(false)}
+                />
+
+            </div> {/* End main layout div */}
         </TooltipProvider>
     );
 };
