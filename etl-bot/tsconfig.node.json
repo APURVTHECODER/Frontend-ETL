@@ -1,22 +1,13 @@
+// tsconfig.node.json (Likely location: project root)
 {
   "compilerOptions": {
-    "target": "ES2022",
-    "lib": ["ES2023"],
-    "module": "ESNext",
+    "composite": true, // <--- ADD THIS
     "skipLibCheck": true,
-
-    /* Bundler mode */
+    "module": "ESNext",
     "moduleResolution": "bundler",
-    "allowImportingTsExtensions": true,
-    "isolatedModules": true,
-    "moduleDetection": "force",
-    "noEmit": true,
-
-    /* Linting */
-    "strict": true,
-    "noUnusedLocals": true,
-    "noUnusedParameters": true,
-    "noFallthroughCasesInSwitch": true
+    "allowSyntheticDefaultImports": true,
+    "strict": true, // Keep strict if you had it
+    // "noEmit": true, // <--- REMOVE OR SET TO false
   },
-  "include": ["vite.config.ts"]
+  "include": ["vite.config.ts"] // Or other Node-specific files
 }
