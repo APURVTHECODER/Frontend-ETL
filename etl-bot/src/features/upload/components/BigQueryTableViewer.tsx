@@ -54,7 +54,13 @@ interface AISummaryResponse {
     summary_text?: string | null;
     error?: string | null;
 }
-
+interface DatasetListItem {
+    datasetId: string;
+    location: string;
+  }
+  interface DatasetListApiResponse {
+    datasets: DatasetListItem[];
+  }
 
 interface TableInfo { tableId: string; }
 interface RowData { [col: string]: any; }
@@ -88,9 +94,16 @@ interface ActiveVisualizationConfig extends VizSuggestion {
 
 const BigQueryTableViewer: React.FC = () => {
     // SecondTeam
-    const datasetId = "SecondTeam"; // ✅ only dataset name //make dynamic as per dataset 
-    const projectId = "crafty-tracker-457215-g6"; // ✅ your GCP project ID   // should be in env variable
-    const fullDatasetId = `${projectId}.${datasetId}`; // "crafty-tracker-457215-g6.sample78600"
+    // process.env.NEXT_PUBLIC_GCP_PROJECT_ID || 
+    const projectId = "crafty-tracker-457215-g6";
+    const [availableDatasets, setAvailableDatasets] = useState<DatasetListItem[]>([]);
+    const [selectedDatasetId, setSelectedDatasetId] = useState<string>("");
+    const [loadingDatasets, setLoadingDatasets] = useState<boolean>(true);
+    const [datasetError, setDatasetError] = useState<string | null>(null);
+    const fullDatasetId = useMemo(() => {
+        if (!projectId || !selectedDatasetId) return "";
+        return `${projectId}.${selectedDatasetId}`;
+    }, [projectId, selectedDatasetId]);
     const { toast } = useToast(); // Initialize toast
     // --- State Variables (Keep existing ones) ---
     const [tables, setTables] = useState<TableInfo[]>([]);
@@ -290,31 +303,67 @@ const BigQueryTableViewer: React.FC = () => {
 
 
     // submitSqlJob: Mostly unchanged, clears previous results
+    
     const submitSqlJob = useCallback(async () => {
-        console.log("Submitting SQL:", sql);
+        // Initial checks for dataset selection remain the same
+        if (!fullDatasetId) {
+            toast({ title: "Dataset Required", description: "Please select a dataset first.", variant: "destructive" });
+            return;
+        }
+         if (!selectedDatasetId) {
+             toast({ title: "Dataset Selection Issue", description: "Selected dataset ID is missing.", variant: "destructive" });
+             return;
+        }
+
+        console.log(`Submitting SQL for dataset ${fullDatasetId}:`, sql);
         stopPolling();
         setJobId(null);
         setJobLocation(null);
         setJobStatus(null);
         setJobError("");
-        setJobResults(null); // Clear previous results immediately
+        setJobResults(null);
         setResultsError("");
-        setActiveFilters({}); // Clear filters for new query
-        setActiveVisualization(null); // Clear active viz for new query
-        setSuggestedCharts([]); // Clear suggestions
+        setActiveFilters({});
+        setActiveVisualization(null);
+        setSuggestedCharts([]);
         setIsRunningJob(true);
         setAiSummary(null);
         setAiSummaryError(null);
         setLoadingAiSummary(false);
-        setLastUserPrompt(null); // Clear last prompt as this is a direct SQL submission
-        setCurrentOutputTab("results"); // Switch to results tab immediately
+        setLastUserPrompt(null);
+        setCurrentOutputTab("results");
+
         try {
-            const r = await axiosInstance.post<JobSubmitResponse>("/api/bigquery/jobs", { sql });
-            const { job_id, location, state } = r.data;
+            // Find the selected dataset's metadata using the selectedDatasetId (short ID)
+            const selectedDatasetMetadata = availableDatasets.find(ds => ds.datasetId === selectedDatasetId);
+
+            if (!selectedDatasetMetadata) {
+                console.error("Could not find metadata in availableDatasets for:", selectedDatasetId);
+                console.error("Available datasets:", availableDatasets);
+                setJobError("Internal Error: Could not find selected dataset's metadata. Please refresh or re-select.");
+                setIsRunningJob(false);
+                return;
+            }
+
+            // +++ MODIFICATION START: Revert to fullDatasetId for default_dataset +++
+            const payload = {
+              sql,
+              priority: "BATCH",
+              use_legacy_sql: false,
+              // Send the FULLY QUALIFIED ID as required by the error message
+              default_dataset: fullDatasetId,
+              location: selectedDatasetMetadata.location,
+            };
+            // +++ MODIFICATION END +++
+            console.log("Job Payload:", payload);
+
+            // Fire the request
+            const r = await axiosInstance.post<JobSubmitResponse>("/api/bigquery/jobs", payload);
+            const { job_id, location: jobLoc, state } = r.data;
             console.log("Job Submitted:", r.data);
             setJobId(job_id);
-            setJobLocation(location);
-            setJobStatus({ job_id, location, state: state as any });
+            setJobLocation(jobLoc || selectedDatasetMetadata.location);
+            setJobStatus({ job_id, location: jobLoc || selectedDatasetMetadata.location, state: state as any });
 
         } catch (e: any) {
             console.error("Error submitting job:", e);
@@ -325,16 +374,62 @@ const BigQueryTableViewer: React.FC = () => {
             setJobLocation(null);
             addToHistory({ sql, success: false });
         }
-    }, [sql, stopPolling, addToHistory, getErrorMessage]);
+         // Dependencies are correct, no change needed here from previous step
+    }, [
+        sql,
+        stopPolling,
+        addToHistory,
+        getErrorMessage,
+        fullDatasetId,
+        selectedDatasetId,
+        availableDatasets,
+        toast
+    ]);
+
 
     // fetchTables, handleTableSelect, etc remain unchanged for now
-    const fetchTables = useCallback(async () => { setLoadingTables(true); setListTablesError(""); 
-        try { const r=await axiosInstance.get<TableInfo[]>(`/api/bigquery/tables?dataset_id=${encodeURIComponent(fullDatasetId)}`); setTables(r.data); setFilteredTables(r.data); 
+    const fetchTables = useCallback(async () => {
+        // +++ Refined Guard Clause +++
+        // Ensure fullDatasetId is not empty AND contains a dot (basic check for project.dataset format)
+        // This prevents calls when selectedDatasetId is set but projectId isn't ready, or vice versa.
+        if (!fullDatasetId || !fullDatasetId.includes('.')) {
+            console.warn(`Skipping fetchTables: Invalid or empty fullDatasetId ('${fullDatasetId}')`);
+            setTables([]);
+            setFilteredTables([]);
+            setLoadingTables(false);
+            // Clear error state if skipping due to invalid ID, it's not a fetch failure yet.
+            setListTablesError("");
+            return; // Exit the function early
+        }
+        // +++ End Refined Guard Clause +++
+
+        console.log(`Fetching tables for dataset: ${fullDatasetId}`); // Log the ID being used
+        setLoadingTables(true);
+        setListTablesError("");
+        setTables([]); // Clear previous tables
+        setFilteredTables([]);
+        try {
+            const url = `/api/bigquery/tables?dataset_id=${encodeURIComponent(fullDatasetId)}`;
+            console.log(`Calling Table API: ${url}`); // Log the exact URL
+            const r = await axiosInstance.get<TableInfo[]>(url);
+            setTables(r.data);
+            setFilteredTables(r.data);
+            // Optional: Toast only if needed, can be noisy on dataset switch
+            // toast({ title: "Tables Loaded Successfully", variant: "default" });
+        }
+        catch (e:any){
+            console.error("Error fetching tables:", e);
+            const errorMessage = getErrorMessage(e);
+            console.error(`Full error message received in fetchTables: ${errorMessage}`); // Log the specific error
+            setListTablesError(`Load tables failed: ${errorMessage}`);
+        } finally {
+            setLoadingTables(false);
+        }
+    // Dependencies: Correctly includes fullDatasetId
+    }, [fullDatasetId, getErrorMessage, toast]);
     
-        toast({ title: "Tables Loaded Successfully", variant: "default" });
-    } 
-        catch (e:any){ console.error("Error fetching tables:",e); setListTablesError(`Load tables failed: ${getErrorMessage(e)}`); } finally { setLoadingTables(false); } }, [fullDatasetId, getErrorMessage]);
-    const handleTableSelect = useCallback(async (tableId: string) => {
+    
+        const handleTableSelect = useCallback(async (tableId: string) => {
         stopPolling();
         setIsRunningJob(false);
         setJobId(null);
@@ -420,7 +515,39 @@ const BigQueryTableViewer: React.FC = () => {
     const handlePreviewPageChange = useCallback(async (newPage: number) => { if(!selectedTableId||newPage===previewCurrentPage)return; setLoadingPreview(true); setPreviewError(""); try { const url=`/api/bigquery/table-data?dataset_id=${encodeURIComponent(fullDatasetId)}&table_id=${encodeURIComponent(selectedTableId)}&page=${newPage}&limit=${previewRowsPerPage}`; const r=await axiosInstance.get(url); const d=r.data; setPreviewRows(d?.rows??[]); setPreviewCurrentPage(newPage); if((d?.rows?.length>0)&&previewColumns.length===0)setPreviewColumns(Object.keys(d.rows[0])); } catch (e:any){ console.error("Error fetching page data:",e); setPreviewError(`Load page ${newPage} failed: ${getErrorMessage(e)}`); } finally { setLoadingPreview(false); } }, [selectedTableId, previewCurrentPage, previewRowsPerPage, fullDatasetId, previewColumns.length, getErrorMessage]);
     const handlePreviewRowsPerPageChange = useCallback((value: string) => { const n=parseInt(value,10); setPreviewRowsPerPage(n); setPreviewCurrentPage(1); if(selectedTableId)handleTableSelect(selectedTableId);}, [selectedTableId, handleTableSelect]);
     const handlePreviewSort = useCallback((columnName: string) => { let d:"asc"|"desc"="asc"; if(previewSortConfig?.key===columnName&&previewSortConfig.direction==="asc")d="desc"; setPreviewSortConfig({key:columnName,direction:d}); const s=[...previewRows].sort((a,b)=>{ const valA=a[columnName], valB=b[columnName]; if(valA==null)return 1; if(valB==null)return -1; if(valA<valB)return d==="asc"?-1:1; if(valA>valB)return d==="asc"?1:-1; return 0; }); setPreviewRows(s);}, [previewSortConfig, previewRows]);
-    const fetchSchema = useCallback(async () => { setLoadingSchema(true); setSchemaError(""); setSchemaData(null); try { const url=`/api/bigquery/schema?dataset_id=${encodeURIComponent(fullDatasetId)}`; const r=await axiosInstance.get<SchemaResponse>(url); setSchemaData(r.data); } catch(e){ console.error("Error fetching schema:",e); setSchemaError(`Load schema failed: ${getErrorMessage(e)}`); } finally { setLoadingSchema(false); } }, [fullDatasetId, getErrorMessage]);
+    
+    
+    const fetchSchema = useCallback(async () => {
+        // +++ Refined Guard Clause (Similar to fetchTables) +++
+        if (!fullDatasetId || !fullDatasetId.includes('.')) {
+            console.warn(`Skipping fetchSchema: Invalid or empty fullDatasetId ('${fullDatasetId}')`);
+            setSchemaData(null);
+            setLoadingSchema(false);
+            setSchemaError(""); // Clear schema error if skipping
+            return; // Exit early
+        }
+        // +++ End Refined Guard Clause +++
+
+        console.log(`Fetching schema for dataset: ${fullDatasetId}`);
+        setLoadingSchema(true);
+        setSchemaError("");
+        setSchemaData(null);
+        try {
+            const url = `/api/bigquery/schema?dataset_id=${encodeURIComponent(fullDatasetId)}`;
+            console.log(`Calling Schema API: ${url}`); // Log the exact URL
+            const r = await axiosInstance.get<SchemaResponse>(url);
+            setSchemaData(r.data);
+        } catch(e){
+            console.error("Error fetching schema:", e);
+            const errorMessage = getErrorMessage(e);
+            console.error(`Full error message received in fetchSchema: ${errorMessage}`); // Log the specific error
+            setSchemaError(`Load schema failed: ${errorMessage}`);
+        } finally {
+            setLoadingSchema(false);
+        }
+     // Dependencies: Correctly includes fullDatasetId
+    }, [fullDatasetId, getErrorMessage]);
+    
     const handleGenerateSql = useCallback(async () => {
         const currentPrompt = nlPrompt.trim(); // Capture prompt before clearing
          if(!currentPrompt)
@@ -434,7 +561,82 @@ const BigQueryTableViewer: React.FC = () => {
         setLoadingAiSummary(false);
         setLastUserPrompt(currentPrompt);  try { const r=await axiosInstance.post<NLQueryResponse>('/api/bigquery/nl2sql',{prompt:nlPrompt,dataset_id:fullDatasetId}); if(r.data.error){setNlError(r.data.error);} else if(r.data.generated_sql){setSql(r.data.generated_sql); setNlPrompt("");} else {setNlError("AI did not return valid SQL.");} } catch(e){ console.error("Error generating SQL:",e); setNlError(`Generate SQL failed: ${getErrorMessage(e)}`); } finally { setGeneratingSql(false); } }, [nlPrompt, fullDatasetId, stopPolling, getErrorMessage]);
 
+// Add this useEffect for initial dataset loading
+useEffect(() => {
+    const fetchInitialDatasets = async () => {
+        console.log("Fetching initial list of datasets...");
+        setLoadingDatasets(true);
+        setDatasetError(null);
+        setAvailableDatasets([]);
+        setSelectedDatasetId("");
+        try {
+            const resp = await axiosInstance.get<DatasetListApiResponse>('/api/bigquery/datasets');
+            const datasets = resp.data.datasets.sort((a, b) =>
+                a.datasetId.localeCompare(b.datasetId)
+            );
+            setAvailableDatasets(datasets);
 
+            if (datasets.length > 0) {
+                setSelectedDatasetId(datasets[0].datasetId);
+                toast({ title: `Selected initial dataset: ${datasets[0].datasetId}`, variant: "default", duration: 2000});
+            } else {
+                setDatasetError("No accessible datasets found.");
+                setTables([]);
+                setFilteredTables([]);
+                setSchemaData(null);
+            }
+        } catch (error: any) {
+            console.error("Error fetching datasets:", error);
+            const message = getErrorMessage(error);
+            setDatasetError(`Failed to load datasets: ${message}`);
+            setTables([]);
+            setFilteredTables([]);
+            setSchemaData(null);
+        } finally {
+            setLoadingDatasets(false);
+        }
+    };
+    fetchInitialDatasets();
+}, [getErrorMessage, toast]);
+const handleDatasetChange = (newDatasetId: string) => {
+    if (newDatasetId && newDatasetId !== selectedDatasetId) {
+        console.log(`Dataset selection changed to: ${newDatasetId}`);
+        toast({title: `Switching to dataset: ${newDatasetId}`, duration: 1500});
+        setSelectedDatasetId(newDatasetId);
+    }
+};
+useEffect(() => {
+    if (selectedDatasetId) {
+        // Reset table/schema related state *before* fetching new data
+        setTables([]);
+        setFilteredTables([]);
+        setSchemaData(null);
+        setListTablesError("");
+        setSchemaError("");
+        setSelectedTableId(null);
+        setPreviewRows([]);
+        setPreviewColumns([]);
+        setPreviewTotalRows(0);
+        setPreviewCurrentPage(1);
+        setTableStats(null);
+        setPreviewError("");
+        setJobId(null);
+        setJobLocation(null);
+        setJobStatus(null);
+        setJobError("");
+        setJobResults(null);
+        setResultsError("");
+        setActiveFilters({});
+        setActiveVisualization(null);
+        setSuggestedCharts([]);
+        setAiSummary(null);
+        setAiSummaryError(null);
+
+        // Trigger fetches for the new dataset
+        fetchTables();
+        fetchSchema();
+    }
+}, [selectedDatasetId, fetchTables, fetchSchema]);
     // --- Filter Generation Effect ---
     useEffect(() => {
         if (jobResults?.rows && jobResults.rows.length > 0 && jobResults.schema) {
@@ -787,6 +989,47 @@ useEffect(() => {
      const renderSidebarContent = () => { /* ... NO CHANGES ... */
         return (
              <div className="p-3 flex flex-col h-full text-sm">
+                            <div className="mb-3 border-b pb-3 flex-shrink-0">
+                <label htmlFor="dataset-select" className="block text-xs font-medium text-muted-foreground mb-1.5">
+                    Select Team (Dataset)
+                </label>
+                {loadingDatasets && (
+                    <div className="flex items-center text-xs text-muted-foreground h-8">
+                        <Loader2 className="mr-2 h-3 w-3 animate-spin" /> Loading...
+                    </div>
+                )}
+                {datasetError && !loadingDatasets && (
+                    <Alert variant="destructive" className="text-xs p-2">
+                        <Terminal className="h-3 w-3" />
+                        <AlertTitle className="text-xs font-medium">Error</AlertTitle>
+                        <AlertDescription className="text-xs">{datasetError}</AlertDescription>
+                    </Alert>
+                )}
+                {!loadingDatasets && !datasetError && (
+                    <Select
+                        value={selectedDatasetId}
+                        onValueChange={handleDatasetChange}
+                        disabled={loadingTables || loadingSchema || isRunningJob || availableDatasets.length === 0}
+                    >
+                        <SelectTrigger id="dataset-select" className="w-full h-8 text-xs">
+                            <SelectValue placeholder="Select a dataset..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                            {availableDatasets.length === 0 && !loadingDatasets ? (
+                                <SelectItem value="no-datasets" disabled className="text-xs">
+                                    No datasets found
+                                </SelectItem>
+                            ) : (
+                                availableDatasets.map(ds => (
+                                    <SelectItem key={ds.datasetId} value={ds.datasetId} className="text-xs">
+                                        {ds.datasetId} <span className="text-xs text-muted-foreground ml-1">({ds.location})</span>
+                                    </SelectItem>
+                                ))
+                            )}
+                        </SelectContent>
+                    </Select>
+                )}
+            </div>
                 <h2 className="font-semibold text-base mb-2 flex items-center text-foreground flex-shrink-0">
                     <Database className="mr-2 h-4 w-4 text-primary" />
                     Dataset Explorer
@@ -834,6 +1077,7 @@ useEffect(() => {
         );
     };
     const renderTablesList = () => { /* ... NO CHANGES ... */
+        if (!selectedDatasetId) return (<div className="text-center py-8 text-muted-foreground text-sm">Select a dataset first.</div>);
         if(loadingTables){return(<div className="flex justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-primary"/></div>);}
         if(listTablesError){return(<Alert variant="destructive" className="mt-2 text-xs"><Terminal className="h-4 w-4"/><AlertTitle>Error</AlertTitle><AlertDescription>{listTablesError}</AlertDescription><Button onClick={fetchTables} variant="link" size="sm" className="mt-2 h-auto p-0 text-xs">Try Again</Button></Alert>);}
         const displayTables = filteredTables.filter(t => t.tableId.toLowerCase().includes(tableSearchQuery.toLowerCase()));
@@ -869,6 +1113,8 @@ useEffect(() => {
         );
     };
     const renderFavoritesList = () => { /* ... NO CHANGES ... */
+        const favsInCurrentDataset = tables.filter(t => favoriteTables.includes(t.tableId));
+    if(favsInCurrentDataset.length === 0) return (<div className="text-center py-8 text-muted-foreground text-sm">No favorites{selectedDatasetId ? ` in ${selectedDatasetId}` : ''}.</div>);
         const favs=tables.filter(t=>favoriteTables.includes(t.tableId));
         if(favs.length===0){return(<div className="text-center py-8 text-muted-foreground text-sm">No favorites.</div>);}
         return(
@@ -973,6 +1219,7 @@ useEffect(() => {
 
 
     const renderSchemaViewer = () => { /* ... NO CHANGES ... */
+        if (!selectedDatasetId) return (<div className="text-center py-8 text-muted-foreground text-sm">Select a dataset first.</div>);
         const displayTables = schemaData?.tables.filter(t => t.table_id.toLowerCase().includes(schemaSearchQuery.toLowerCase())) ?? [];
         return(
             <div className="h-full pb-1 flex flex-col text-sm">
@@ -995,6 +1242,8 @@ useEffect(() => {
         );
     };
     const renderTablePreview = () => { /* ... NO CHANGES ... */
+        if (!selectedDatasetId) return (<div className="flex items-center justify-center h-full text-muted-foreground p-6"><div className="text-center"><Database className="h-12 w-12 mx-auto mb-4 opacity-20"/><h3 className="text-lg font-medium mb-2">No Dataset Selected</h3><p className="text-sm">Select a dataset from the sidebar.</p></div></div>);
+        // ... rest of the existing function
         if(!selectedTableId)return(<div className="flex items-center justify-center h-full text-muted-foreground"><div className="text-center p-6"><Database className="h-12 w-12 mx-auto mb-4 opacity-20"/><h3 className="text-lg font-medium mb-2">No Table Selected</h3><p className="text-sm">Select a table from the sidebar.</p></div></div>);
         if(loadingPreview)return(<div className="flex justify-center items-center h-full"><div className="text-center"><Loader2 className="h-8 w-8 animate-spin mx-auto mb-3 text-primary"/><p className="text-sm text-muted-foreground">Loading preview...</p></div></div>);
         if(previewError)return(<Alert variant="destructive" className="m-4"><Terminal className="h-4 w-4"/><AlertTitle>Preview Error</AlertTitle><AlertDescription>{previewError}</AlertDescription><Button onClick={()=>handleTableSelect(selectedTableId)} variant="link" size="sm" className="mt-2 h-auto p-0">Try Again</Button></Alert>);

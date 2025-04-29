@@ -17,6 +17,7 @@ import { Terminal } from 'lucide-react'; // Icon for error alert
 // +++ MODIFICATION END +++
 interface DatasetListItem {
   datasetId: string;
+  location: string
 }
 interface DatasetListApiResponse {
   datasets: DatasetListItem[];
@@ -30,7 +31,7 @@ export function UploadView() {
 
     // +++ MODIFICATION START +++
   // State for fetched datasets, loading, and errors
-  const [availableDatasets, setAvailableDatasets] = useState<string[]>([]); // Will hold fetched dataset IDs
+  const [availableDatasets, setAvailableDatasets] = useState<DatasetListItem[]>([]);
   const [selectedDatasetId, setSelectedDatasetId] = useState<string>(""); // Start empty or null
   const [loadingDatasets, setLoadingDatasets] = useState<boolean>(true);
   const [datasetError, setDatasetError] = useState<string | null>(null);
@@ -41,19 +42,20 @@ export function UploadView() {
       setLoadingDatasets(true);
       setDatasetError(null);
       try {
-        const response = await axiosInstance.get<DatasetListApiResponse>('/api/bigquery/datasets');
-        const datasetIds = response.data.datasets.map(ds => ds.datasetId).sort(); // Sort alphabetically
-        setAvailableDatasets(datasetIds);
-
-        // Optionally set the first dataset as default if list is not empty
-        if (datasetIds.length > 0 && !selectedDatasetId) {
-            setSelectedDatasetId(datasetIds[0]);
-        } else if (datasetIds.length === 0) {
-            setSelectedDatasetId(""); // Ensure selection is cleared if no datasets
-            setDatasetError("No accessible datasets found."); // Inform user
+        const resp = await axiosInstance.get<DatasetListApiResponse>('/api/bigquery/datasets');
+        // sort by ID
+        const datasets = resp.data.datasets.sort((a, b) =>
+          a.datasetId.localeCompare(b.datasetId)
+        );
+        setAvailableDatasets(datasets);
+    
+        if (datasets.length > 0 && !selectedDatasetId) {
+          setSelectedDatasetId(datasets[0].datasetId);
+        } else if (datasets.length === 0) {
+          setSelectedDatasetId("");
+          setDatasetError("No accessible datasets found.");
         }
-
-      } catch (error: any) {
+      } catch (err: any) {
         console.error("Error fetching datasets:", error);
         const message = axios.isAxiosError(error) ? error.response?.data?.detail || error.message : error.message;
         setDatasetError(`Failed to load datasets: ${message}`);
@@ -63,6 +65,7 @@ export function UploadView() {
         setLoadingDatasets(false);
       }
     };
+    
 
     fetchDatasets();
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -244,35 +247,34 @@ export function UploadView() {
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading datasets...
               </div>
           )}
-          {datasetError && !loadingDatasets && (
-               <Alert variant="destructive" className="text-xs">
-                    <Terminal className="h-4 w-4" />
-                    <AlertTitle>Error Loading Datasets</AlertTitle>
-                    <AlertDescription>{datasetError}</AlertDescription>
-                    {/* Optionally add a retry button here */}
-               </Alert>
-          )}
           {!loadingDatasets && !datasetError && (
-              <Select
-                    value={selectedDatasetId}
-                    onValueChange={(value) => setSelectedDatasetId(value)}
-                    // Disable if uploading or if there are no datasets to choose from
-                    disabled={isUploading || processingStage === 'uploading' || availableDatasets.length === 0}
-               >
-                  <SelectTrigger id="dataset-select" className="w-full md:w-[300px]">
-                      <SelectValue placeholder="Select a dataset..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                      {availableDatasets.length === 0 && !loadingDatasets ? (
-                          <div className="px-4 py-2 text-sm text-muted-foreground">No datasets found</div>
-                      ) : (
-                           availableDatasets.map(dsId => (
-                              <SelectItem key={dsId} value={dsId}>{dsId}</SelectItem>
-                           ))
-                      )}
-                  </SelectContent>
-              </Select>
-          )}
+  <Select
+    value={selectedDatasetId}
+    onValueChange={setSelectedDatasetId}
+    disabled={
+      isUploading ||
+      processingStage === 'uploading' ||
+      availableDatasets.length === 0
+    }
+  >
+    <SelectTrigger id="dataset-select" className="w-full md:w-[300px]">
+      <SelectValue placeholder="Select a dataset..." />
+    </SelectTrigger>
+    <SelectContent>
+      {availableDatasets.length === 0 ? (
+        <div className="px-4 py-2 text-sm text-muted-foreground">
+          No datasets found
+        </div>
+      ) : (
+        availableDatasets.map(ds => (
+          <SelectItem key={ds.datasetId} value={ds.datasetId}>
+            {ds.datasetId} (Region: {ds.location})
+          </SelectItem>
+        ))
+      )}
+    </SelectContent>
+  </Select>
+)}
           <p className="text-xs text-muted-foreground mt-2">
               Files added below will be processed into the selected BigQuery dataset.
           </p>
