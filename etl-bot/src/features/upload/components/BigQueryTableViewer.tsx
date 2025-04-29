@@ -87,7 +87,10 @@ interface ActiveVisualizationConfig extends VizSuggestion {
 }
 
 const BigQueryTableViewer: React.FC = () => {
-    const datasetId = "crafty-tracker-457215-g6.sample78600";
+    // SecondTeam
+    const datasetId = "SecondTeam"; // ✅ only dataset name //make dynamic as per dataset 
+    const projectId = "crafty-tracker-457215-g6"; // ✅ your GCP project ID   // should be in env variable
+    const fullDatasetId = `${projectId}.${datasetId}`; // "crafty-tracker-457215-g6.sample78600"
     const { toast } = useToast(); // Initialize toast
     // --- State Variables (Keep existing ones) ---
     const [tables, setTables] = useState<TableInfo[]>([]);
@@ -326,11 +329,11 @@ const BigQueryTableViewer: React.FC = () => {
 
     // fetchTables, handleTableSelect, etc remain unchanged for now
     const fetchTables = useCallback(async () => { setLoadingTables(true); setListTablesError(""); 
-        try { const r=await axiosInstance.get<TableInfo[]>(`/api/bigquery/tables?dataset_id=${encodeURIComponent(datasetId)}`); setTables(r.data); setFilteredTables(r.data); 
+        try { const r=await axiosInstance.get<TableInfo[]>(`/api/bigquery/tables?dataset_id=${encodeURIComponent(fullDatasetId)}`); setTables(r.data); setFilteredTables(r.data); 
     
-        toast({ title: "Tables Loaded Successfully", variant: "successfull" });
+        toast({ title: "Tables Loaded Successfully", variant: "default" });
     } 
-        catch (e:any){ console.error("Error fetching tables:",e); setListTablesError(`Load tables failed: ${getErrorMessage(e)}`); } finally { setLoadingTables(false); } }, [datasetId, getErrorMessage]);
+        catch (e:any){ console.error("Error fetching tables:",e); setListTablesError(`Load tables failed: ${getErrorMessage(e)}`); } finally { setLoadingTables(false); } }, [fullDatasetId, getErrorMessage]);
     const handleTableSelect = useCallback(async (tableId: string) => {
         stopPolling();
         setIsRunningJob(false);
@@ -351,11 +354,11 @@ const BigQueryTableViewer: React.FC = () => {
         setPreviewCurrentPage(1);
         setTableStats(null);
         setPreviewSortConfig(null);
-        const defaultSql = `SELECT *\nFROM \`${datasetId}.${tableId}\`\nLIMIT 100;`;
+        const defaultSql = `SELECT *\nFROM \`${fullDatasetId}.${tableId}\`\nLIMIT 100;`;
         setSql(defaultSql);
         setCurrentOutputTab("data"); // Switch to PREVIEW tab
         try {
-            const url = `/api/bigquery/table-data?dataset_id=${encodeURIComponent(datasetId)}&table_id=${encodeURIComponent(tableId)}&page=1&limit=${previewRowsPerPage}`;
+            const url = `/api/bigquery/table-data?dataset_id=${encodeURIComponent(fullDatasetId)}&table_id=${encodeURIComponent(tableId)}&page=1&limit=${previewRowsPerPage}`;
             const r = await axiosInstance.get(url);
             const d = r.data;
             setPreviewRows(d?.rows ?? []);
@@ -369,7 +372,7 @@ const BigQueryTableViewer: React.FC = () => {
         } finally {
             setLoadingPreview(false);
         }
-     }, [datasetId, previewRowsPerPage, stopPolling, getErrorMessage]); // Dependencies remain the same
+     }, [fullDatasetId, previewRowsPerPage, stopPolling, getErrorMessage]); // Dependencies remain the same
 
 
      const fetchAiSummary = useCallback(async () => {
@@ -414,10 +417,10 @@ const BigQueryTableViewer: React.FC = () => {
     // +++ END Function to Fetch AI Summary +++
 
 
-    const handlePreviewPageChange = useCallback(async (newPage: number) => { if(!selectedTableId||newPage===previewCurrentPage)return; setLoadingPreview(true); setPreviewError(""); try { const url=`/api/bigquery/table-data?dataset_id=${encodeURIComponent(datasetId)}&table_id=${encodeURIComponent(selectedTableId)}&page=${newPage}&limit=${previewRowsPerPage}`; const r=await axiosInstance.get(url); const d=r.data; setPreviewRows(d?.rows??[]); setPreviewCurrentPage(newPage); if((d?.rows?.length>0)&&previewColumns.length===0)setPreviewColumns(Object.keys(d.rows[0])); } catch (e:any){ console.error("Error fetching page data:",e); setPreviewError(`Load page ${newPage} failed: ${getErrorMessage(e)}`); } finally { setLoadingPreview(false); } }, [selectedTableId, previewCurrentPage, previewRowsPerPage, datasetId, previewColumns.length, getErrorMessage]);
+    const handlePreviewPageChange = useCallback(async (newPage: number) => { if(!selectedTableId||newPage===previewCurrentPage)return; setLoadingPreview(true); setPreviewError(""); try { const url=`/api/bigquery/table-data?dataset_id=${encodeURIComponent(fullDatasetId)}&table_id=${encodeURIComponent(selectedTableId)}&page=${newPage}&limit=${previewRowsPerPage}`; const r=await axiosInstance.get(url); const d=r.data; setPreviewRows(d?.rows??[]); setPreviewCurrentPage(newPage); if((d?.rows?.length>0)&&previewColumns.length===0)setPreviewColumns(Object.keys(d.rows[0])); } catch (e:any){ console.error("Error fetching page data:",e); setPreviewError(`Load page ${newPage} failed: ${getErrorMessage(e)}`); } finally { setLoadingPreview(false); } }, [selectedTableId, previewCurrentPage, previewRowsPerPage, fullDatasetId, previewColumns.length, getErrorMessage]);
     const handlePreviewRowsPerPageChange = useCallback((value: string) => { const n=parseInt(value,10); setPreviewRowsPerPage(n); setPreviewCurrentPage(1); if(selectedTableId)handleTableSelect(selectedTableId);}, [selectedTableId, handleTableSelect]);
     const handlePreviewSort = useCallback((columnName: string) => { let d:"asc"|"desc"="asc"; if(previewSortConfig?.key===columnName&&previewSortConfig.direction==="asc")d="desc"; setPreviewSortConfig({key:columnName,direction:d}); const s=[...previewRows].sort((a,b)=>{ const valA=a[columnName], valB=b[columnName]; if(valA==null)return 1; if(valB==null)return -1; if(valA<valB)return d==="asc"?-1:1; if(valA>valB)return d==="asc"?1:-1; return 0; }); setPreviewRows(s);}, [previewSortConfig, previewRows]);
-    const fetchSchema = useCallback(async () => { setLoadingSchema(true); setSchemaError(""); setSchemaData(null); try { const url=`/api/bigquery/schema?dataset_id=${encodeURIComponent(datasetId)}`; const r=await axiosInstance.get<SchemaResponse>(url); setSchemaData(r.data); } catch(e){ console.error("Error fetching schema:",e); setSchemaError(`Load schema failed: ${getErrorMessage(e)}`); } finally { setLoadingSchema(false); } }, [datasetId, getErrorMessage]);
+    const fetchSchema = useCallback(async () => { setLoadingSchema(true); setSchemaError(""); setSchemaData(null); try { const url=`/api/bigquery/schema?dataset_id=${encodeURIComponent(fullDatasetId)}`; const r=await axiosInstance.get<SchemaResponse>(url); setSchemaData(r.data); } catch(e){ console.error("Error fetching schema:",e); setSchemaError(`Load schema failed: ${getErrorMessage(e)}`); } finally { setLoadingSchema(false); } }, [fullDatasetId, getErrorMessage]);
     const handleGenerateSql = useCallback(async () => {
         const currentPrompt = nlPrompt.trim(); // Capture prompt before clearing
          if(!currentPrompt)
@@ -429,7 +432,7 @@ const BigQueryTableViewer: React.FC = () => {
             setAiSummary(null);
         setAiSummaryError(null);
         setLoadingAiSummary(false);
-        setLastUserPrompt(currentPrompt);  try { const r=await axiosInstance.post<NLQueryResponse>('/api/bigquery/nl2sql',{prompt:nlPrompt,dataset_id:datasetId}); if(r.data.error){setNlError(r.data.error);} else if(r.data.generated_sql){setSql(r.data.generated_sql); setNlPrompt("");} else {setNlError("AI did not return valid SQL.");} } catch(e){ console.error("Error generating SQL:",e); setNlError(`Generate SQL failed: ${getErrorMessage(e)}`); } finally { setGeneratingSql(false); } }, [nlPrompt, datasetId, stopPolling, getErrorMessage]);
+        setLastUserPrompt(currentPrompt);  try { const r=await axiosInstance.post<NLQueryResponse>('/api/bigquery/nl2sql',{prompt:nlPrompt,dataset_id:fullDatasetId}); if(r.data.error){setNlError(r.data.error);} else if(r.data.generated_sql){setSql(r.data.generated_sql); setNlPrompt("");} else {setNlError("AI did not return valid SQL.");} } catch(e){ console.error("Error generating SQL:",e); setNlError(`Generate SQL failed: ${getErrorMessage(e)}`); } finally { setGeneratingSql(false); } }, [nlPrompt, fullDatasetId, stopPolling, getErrorMessage]);
 
 
     // --- Filter Generation Effect ---
@@ -788,8 +791,8 @@ useEffect(() => {
                     <Database className="mr-2 h-4 w-4 text-primary" />
                     Dataset Explorer
                 </h2>
-                <p className="text-xs text-muted-foreground mb-3 truncate flex-shrink-0" title={datasetId}>
-                    {datasetId}
+                <p className="text-xs text-muted-foreground mb-3 truncate flex-shrink-0" title={fullDatasetId}>
+                    {fullDatasetId}
                 </p>
                 <Tabs value={currentSidebarTab} onValueChange={setCurrentSidebarTab} className="flex-grow flex flex-col overflow-hidden">
                     <TabsList className="grid grid-cols-4 mb-3 h-8 bg-muted flex-shrink-0">
@@ -980,7 +983,7 @@ useEffect(() => {
                         <AccordionItem value={t.table_id} key={t.table_id} className="border rounded-md mb-1.5 bg-card shadow-sm">
                             <AccordionTrigger className="text-xs hover:no-underline py-1.5 px-2 font-medium text-card-foreground hover:bg-muted/50 rounded-t-md"><div className="flex items-center gap-2"><Table2 className="h-3.5 w-3.5 text-primary"/><span className="truncate">{t.table_id}</span></div></AccordionTrigger>
                             <AccordionContent className="pt-0 px-2 pb-1.5">
-                                <div className="text-xs"><div className="border bg-background rounded-sm overflow-hidden text-[11px]"><table className="w-full"><thead><tr className="bg-muted border-b"><th className="px-2 py-1 text-left font-medium text-muted-foreground">Column</th><th className="px-2 py-1 text-left font-medium text-muted-foreground">Type</th><th className="px-2 py-1 text-left font-medium text-muted-foreground">Mode</th></tr></thead><tbody>{t.columns.map((c,i)=>(<tr key={c.name} className={i%2===0?'bg-card':'bg-muted/50'}><td className="px-2 py-0.5 font-mono text-foreground truncate max-w-20">{c.name}</td><td className="px-2 py-0.5 text-foreground">{c.type}</td><td className="px-2 py-0.5"><Badge variant={c.mode==='REQUIRED'?'default':'outline'} className="text-[10px] px-1 py-0 h-4">{c.mode}</Badge></td></tr>))}</tbody></table></div><div className="mt-1.5 flex justify-end"><Button variant="ghost" size="xs" className="text-xs h-6 text-muted-foreground hover:text-primary" onClick={()=>{const s=`SELECT ${t.columns.slice(0,5).map(c=>c.name).join(', ')}\nFROM \`${datasetId}.${t.table_id}\`\nLIMIT 100;`;setSql(s);}}><Code className="mr-1 h-3 w-3"/>Query</Button></div></div>
+                                <div className="text-xs"><div className="border bg-background rounded-sm overflow-hidden text-[11px]"><table className="w-full"><thead><tr className="bg-muted border-b"><th className="px-2 py-1 text-left font-medium text-muted-foreground">Column</th><th className="px-2 py-1 text-left font-medium text-muted-foreground">Type</th><th className="px-2 py-1 text-left font-medium text-muted-foreground">Mode</th></tr></thead><tbody>{t.columns.map((c,i)=>(<tr key={c.name} className={i%2===0?'bg-card':'bg-muted/50'}><td className="px-2 py-0.5 font-mono text-foreground truncate max-w-20">{c.name}</td><td className="px-2 py-0.5 text-foreground">{c.type}</td><td className="px-2 py-0.5"><Badge variant={c.mode==='REQUIRED'?'default':'outline'} className="text-[10px] px-1 py-0 h-4">{c.mode}</Badge></td></tr>))}</tbody></table></div><div className="mt-1.5 flex justify-end"><Button variant="ghost" size="xs" className="text-xs h-6 text-muted-foreground hover:text-primary" onClick={()=>{const s=`SELECT ${t.columns.slice(0,5).map(c=>c.name).join(', ')}\nFROM \`${fullDatasetId}.${t.table_id}\`\nLIMIT 100;`;setSql(s);}}><Code className="mr-1 h-3 w-3"/>Query</Button></div></div>
                             </AccordionContent>
                         </AccordionItem>))} </Accordion></ScrollArea>)}
                     {(!schemaData||displayTables.length===0)&&!loadingSchema&&!schemaError&&(<div className="text-center py-6 text-muted-foreground text-sm">No schema{schemaSearchQuery&&` matching "${schemaSearchQuery}"`}.</div>)}
@@ -1026,7 +1029,7 @@ useEffect(() => {
                     <div className="flex gap-1">
                         {/* Buttons use default theme variants/colors */}
                         <Button variant="ghost" size="xs" onClick={()=>toggleFavorite(selectedTableId)} className={`h-7 ${favoriteTables.includes(selectedTableId)?"text-yellow-500 dark:text-yellow-400":""}`}><Bookmark className="mr-1 h-3 w-3" fill={favoriteTables.includes(selectedTableId)?"currentColor":"none"}/>Fav</Button>
-                        <Button variant="ghost" size="xs" onClick={()=>copyToClipboard(`\`${datasetId}.${selectedTableId}\``,"Table name copied!")} className="h-7"><Copy className="mr-1 h-3 w-3"/>Copy</Button>
+                        <Button variant="ghost" size="xs" onClick={()=>copyToClipboard(`\`${fullDatasetId}.${selectedTableId}\``,"Table name copied!")} className="h-7"><Copy className="mr-1 h-3 w-3"/>Copy</Button>
                     </div>
                 </div>
                 {statsDisp}
