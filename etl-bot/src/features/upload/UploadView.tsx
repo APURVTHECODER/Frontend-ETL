@@ -11,11 +11,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import axios from 'axios'; // Use axios for easier error handling potentially
 import { useToast } from "@/hooks/use-toast"
 import { CreateDataset } from './components/CreateDataset';
+import { Skeleton } from "@/components/ui/skeleton"; // +++ Import Skeleton for loading state +++
 // +++ MODIFICATION START +++
 import { Loader2 } from 'lucide-react'; // For loading state
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"; // For error state
 import { Terminal } from 'lucide-react'; // Icon for error alert
 import { Label } from '@/components/ui/label';
+import { useAuth } from '@/contexts/AuthContext';
+
 // +++ MODIFICATION END +++
 interface DatasetListItem {
   datasetId: string;
@@ -30,7 +33,10 @@ export function UploadView() {
   const [processingStage, setProcessingStage] = useState<ProcessingStage>('idle');
   const [isUploading, setIsUploading] = useState<boolean>(false);
   const { toast } = useToast();
-
+  // +++ Get user role and loading state from Auth context +++
+  const { userProfile, isRoleLoading } = useAuth();
+  const isAdmin = userProfile?.role === 'admin';
+  // +++ End Auth context usage +++
     // +++ MODIFICATION START +++
   // State for fetched datasets, loading, and errors
   const [availableDatasets, setAvailableDatasets] = useState<DatasetListItem[]>([]);
@@ -302,8 +308,18 @@ export function UploadView() {
                       </SelectContent>
                   </Select>
 
-                  {/* Create Dataset Button - Placed *next to* the Select dropdown */}
-                  <CreateDataset onDatasetCreated={handleDatasetCreated} />
+  {/* +++ Conditional Rendering/Disabling based on Role +++ */}
+  {isRoleLoading && ( <Skeleton className="h-9 w-[190px]" /> /* Placeholder while checking role */ )}
+                  {!isRoleLoading && isAdmin && (
+                      <CreateDataset onDatasetCreated={handleDatasetCreated} />
+                  )}
+                   {/* Optional: Show disabled button for non-admins if preferred */}
+                   {/* {!isRoleLoading && !isAdmin && (
+                       <Button variant="outline" size="sm" disabled title="Admin role required to create datasets">
+                           <PlusCircle className="mr-2 h-4 w-4" /> Create New Dataset
+                       </Button>
+                   )} */}
+                  {/* +++ End Conditional Rendering +++ */}
               </div>
           )}
 
