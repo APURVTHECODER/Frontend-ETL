@@ -2,6 +2,7 @@ import React, { useEffect, useState, useRef, useCallback, useMemo } from "react"
 import axios, { AxiosError } from "axios";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import Editor from '@monaco-editor/react'
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import axiosInstance from '@/lib/axios-instance';
@@ -16,7 +17,9 @@ import {
     LineChart as LineChartIcon, PieChart as PieChartIcon, Dot , Trash2 , GripVertical ,History,Copy,
     ListFilter, // Added Filter icon
     MessageSquare,X,
+    FileSpreadsheet, Clock ,Sparkles
 } from "lucide-react";
+import { useToast } from "@/hooks/use-toast"
 import {
     BarChart, Bar, LineChart, Line, PieChart, Pie, ScatterChart, Scatter,
     XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer, Cell
@@ -33,12 +36,32 @@ import {
 } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-
+import { saveAs } from 'file-saver';
 // --- Import Filter Components and Types ---
 import { FilterConfig, ActiveFilters, ActiveFilterValue, FilterType } from '@/components/filters/filterTypes';
 import { parseISO, isValid } from 'date-fns'; // Import date-fns for parsing
 import { FilterControls } from "@/components/filters/FilterControls";
 // --- Interfaces (Keep existing ones) ---
+
+
+interface AISummaryRequest {
+    schema: JobResultSchemaField[];
+    query_sql: string;
+    original_prompt?: string | null;
+    result_sample: RowData[];
+}
+interface AISummaryResponse {
+    summary_text?: string | null;
+    error?: string | null;
+}
+interface DatasetListItem {
+    datasetId: string;
+    location: string;
+  }
+  interface DatasetListApiResponse {
+    datasets: DatasetListItem[];
+  }
+
 interface TableInfo { tableId: string; }
 interface RowData { [col: string]: any; }
 interface TableStats { rowCount: number; sizeBytes: number; lastModified: string; }
@@ -50,7 +73,15 @@ interface ColumnInfo { name: string; type: string; mode: string; }
 interface TableSchema { table_id: string; columns: ColumnInfo[]; }
 interface SchemaResponse { dataset_id: string; tables: TableSchema[]; }
 interface NLQueryResponse { generated_sql?: string | null; error?: string | null; }
-interface QueryHistoryItem { id: string; sql: string; timestamp: string; success: boolean; rowCount?: number; }
+interface QueryHistoryItem {
+    id: string;
+    sql: string;
+    timestamp: string;
+    success: boolean;
+    rowCount?: number;
+    durationMs?: number;      // NEW: Store duration in milliseconds
+    bytesProcessed?: number;  // NEW: Store bytes processed
+}
 interface VizSuggestion {
     chart_type: 'bar' | 'line' | 'pie' | 'scatter';
     x_axis_column: string;
@@ -62,8 +93,18 @@ interface ActiveVisualizationConfig extends VizSuggestion {
 }
 
 const BigQueryTableViewer: React.FC = () => {
-    const datasetId = "crafty-tracker-457215-g6.sample78600";
-
+    // SecondTeam
+    // process.env.NEXT_PUBLIC_GCP_PROJECT_ID || 
+    const projectId = "crafty-tracker-457215-g6";
+    const [availableDatasets, setAvailableDatasets] = useState<DatasetListItem[]>([]);
+    const [selectedDatasetId, setSelectedDatasetId] = useState<string>("");
+    const [loadingDatasets, setLoadingDatasets] = useState<boolean>(true);
+    const [datasetError, setDatasetError] = useState<string | null>(null);
+    const fullDatasetId = useMemo(() => {
+        if (!projectId || !selectedDatasetId) return "";
+        return `${projectId}.${selectedDatasetId}`;
+    }, [projectId, selectedDatasetId]);
+    const { toast } = useToast(); // Initialize toast
     // --- State Variables (Keep existing ones) ---
     const [tables, setTables] = useState<TableInfo[]>([]);
     const [filteredTables, setFilteredTables] = useState<TableInfo[]>([]);
@@ -111,7 +152,7 @@ const BigQueryTableViewer: React.FC = () => {
     const [activeVisualization, setActiveVisualization] = useState<ActiveVisualizationConfig | null>(null);
     const [loadingAiSuggestions, setLoadingAiSuggestions] = useState<boolean>(false);
     const [aiSuggestionError, setAiSuggestionError] = useState<string>("");
-
+    const [isDownloadingExcel, setIsDownloadingExcel] = useState<boolean>(false);
     // --- State for Filters ---
     const [availableFilters, setAvailableFilters] = useState<FilterConfig[]>([]);
     const [activeFilters, setActiveFilters] = useState<ActiveFilters>({});
@@ -123,13 +164,47 @@ const BigQueryTableViewer: React.FC = () => {
     const resizeHandleRef = useRef<HTMLDivElement>(null);
     const POLLING_INTERVAL_MS = 3000;
 
+
+    // +++ State for AI Summary +++
+    const [aiSummary, setAiSummary] = useState<string | null>(null);
+    const [loadingAiSummary, setLoadingAiSummary] = useState<boolean>(false);
+    const [aiSummaryError, setAiSummaryError] = useState<string | null>(null);
+    const [lastUserPrompt, setLastUserPrompt] = useState<string | null>(null); // Store the prompt used for the current results
+    // +++ END State for AI Summary +++
+
+
     // --- Utility Functions (Keep existing ones) ---
+    const extractTableNames = useCallback((sql: string): string[] => {
+        // Regex to find fully qualified tables (project.dataset.table) after FROM or JOIN
+        // Handles optional backticks around the full name or individual parts
+        const regex = /(?:FROM|JOIN)\s+`?((?:`?[a-zA-Z0-9_.-]+`?\.)+(?:`?[a-zA-Z0-9_-]+`?))`?/gi;
+        const matches = sql.matchAll(regex);
+        const tables = new Set<string>();
+        for (const match of matches) {
+            if (match[1]) {
+                // Remove all backticks and normalize
+                const tableName = match[1].replace(/`/g, '').toLowerCase();
+                // Basic validation for structure
+                if (tableName.split('.').length >= 3) {
+                     tables.add(tableName);
+                }
+            }
+        }
+        console.log("Extracted source tables for export:", Array.from(tables));
+        return Array.from(tables);
+    }, []);
+
     const getErrorMessage = useCallback((error: any): string => { if(axios.isAxiosError(error)){const d=error.response?.data; if(d && typeof d==='object' && 'detail' in d)return String(d.detail); if(typeof d==='string')return d; return error.message;} if(error instanceof Error)return error.message; return"An unknown error occurred."; }, []);
     const formatBytes = useCallback((bytes: number | null | undefined): string => { if(bytes==null||bytes===undefined||bytes===0)return"0 Bytes"; const k=1024,s=["Bytes","KB","MB","GB","TB"],i=Math.floor(Math.log(bytes)/Math.log(k)); return parseFloat((bytes/Math.pow(k,i)).toFixed(2))+" "+s[i]; }, []);
     const formatDate = useCallback((dateString: string | null | undefined): string => { if(!dateString)return"N/A"; try{return new Date(dateString).toLocaleString();}catch(e){return dateString;} }, []);
     const copyToClipboard = useCallback((text: string, message: string = "Copied!"): void => { navigator.clipboard.writeText(text).then(()=>{console.log(message); /* TODO: Add toast */}).catch(err=>{console.error("Copy failed:",err);}); }, []);
     const toggleFavorite = useCallback((tableId: string): void => setFavoriteTables(prev => prev.includes(tableId)?prev.filter(id=>id!==tableId):[...prev,tableId]), []);
-    const addToHistory = useCallback((newItem: Omit<QueryHistoryItem, 'id' | 'timestamp'>): void => { const ts=new Date().toISOString(),id=`q-${Date.now()}`; setQueryHistory(prev=>[{...newItem,id,timestamp:ts},...prev.slice(0,49)]);}, []);
+    const addToHistory = useCallback((newItem: Omit<QueryHistoryItem, 'id' | 'timestamp'>): void => {
+        const ts = new Date().toISOString();
+        // Added randomness to ID to better handle quick successive identical queries if needed
+        const id = `q-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+        setQueryHistory(prev => [{ ...newItem, id, timestamp: ts }, ...prev.slice(0, 49)]); // Limit history size
+    }, []);
 
     // --- API Callbacks (Keep existing ones) ---
     const stopPolling = useCallback(() => { if(pollingIntervalRef.current){clearInterval(pollingIntervalRef.current); pollingIntervalRef.current=null; console.log("Polling stopped.");} }, []);
@@ -177,28 +252,119 @@ const BigQueryTableViewer: React.FC = () => {
                  if(d.statement_type==='SELECT'||d.statement_type===undefined){ await fetchJobResults(currentJobId,loc); // Fetch first page
                 } else { setJobResults({rows:[],total_rows_in_result_set:d.num_dml_affected_rows??0,schema:[]}); addToHistory({sql,success:true,rowCount:d.num_dml_affected_rows}); } } } else { setIsRunningJob(true); } } catch (e:any){ console.error("Error fetching status:",e); const m=getErrorMessage(e); if(e.response?.status===404){ setJobError(`Job ${currentJobId} not found.`); stopPolling(); setIsRunningJob(false); addToHistory({sql,success:false}); } else { setJobError(`Fetch status failed: ${m}`); } } }, [stopPolling, fetchJobResults, sql, addToHistory, getErrorMessage]); // Added setCurrentOutputTab dependency indirectly via fetchJobResults
 
+                const handleExcelDownload = useCallback(async () => {
+                    if (!jobId || !sql || !jobLocation) {
+                        console.error("Missing Job ID, SQL, or Location for download.");
+                        // TODO: Show a user-facing error (e.g., using a toast library)
+                        return;
+                    }
+            
+                    setIsDownloadingExcel(true);
+                    // Optional: Show a toast notification that download has started
+            
+                    try {
+                        const sourceTables = extractTableNames(sql);
+            
+                        console.log(`Requesting Excel export for Job: ${jobId}, Location: ${jobLocation}, Tables:`, sourceTables);
+            
+                        const response = await axiosInstance.post('/api/export/query-to-excel', {
+                            job_id: jobId,
+                            sql: sql,
+                            location: jobLocation, // Send location if needed by backend logic
+                            // Note: We are not sending source_tables explicitly as the backend extracts them
+                        }, {
+                            responseType: 'blob', // Crucial for receiving file data
+                        });
+            
+                        // Extract filename from Content-Disposition header if available
+                        let filename = `query_export_${jobId.substring(0, 8)}.xlsx`; // Default filename
+                        const contentDisposition = response.headers['content-disposition'];
+                        if (contentDisposition) {
+                            const filenameMatch = contentDisposition.match(/filename="?([^"]+)"?/);
+                            if (filenameMatch && filenameMatch.length > 1) {
+                                filename = filenameMatch[1];
+                            }
+                        }
+            
+                        // Use file-saver to trigger the download
+                        saveAs(response.data, filename);
+                        toast({ title: "Download Successfull.", variant: "successfull" });
+                        // Optional: Show a success toast
+            
+                    } catch (error: any) {
+                        console.error("Excel download failed:", error);
+                        const errorMessage = getErrorMessage(error);
+                        // TODO: Show user-facing error toast with `errorMessage`
+                        alert(`Failed to download report: ${errorMessage}`); // Simple alert for now
+                    } finally {
+                        setIsDownloadingExcel(false);
+                    }
+                }, [jobId, sql, jobLocation, extractTableNames, getErrorMessage]); // Added dependencies
+
+
     // submitSqlJob: Mostly unchanged, clears previous results
+    
     const submitSqlJob = useCallback(async () => {
-        console.log("Submitting SQL:", sql);
+        // Initial checks for dataset selection remain the same
+        if (!fullDatasetId) {
+            toast({ title: "Dataset Required", description: "Please select a dataset first.", variant: "destructive" });
+            return;
+        }
+         if (!selectedDatasetId) {
+             toast({ title: "Dataset Selection Issue", description: "Selected dataset ID is missing.", variant: "destructive" });
+             return;
+        }
+
+        console.log(`Submitting SQL for dataset ${fullDatasetId}:`, sql);
         stopPolling();
         setJobId(null);
         setJobLocation(null);
         setJobStatus(null);
         setJobError("");
-        setJobResults(null); // Clear previous results immediately
+        setJobResults(null);
         setResultsError("");
-        setActiveFilters({}); // Clear filters for new query
-        setActiveVisualization(null); // Clear active viz for new query
-        setSuggestedCharts([]); // Clear suggestions
+        setActiveFilters({});
+        setActiveVisualization(null);
+        setSuggestedCharts([]);
         setIsRunningJob(true);
-        setCurrentOutputTab("results"); // Switch to results tab immediately
+        setAiSummary(null);
+        setAiSummaryError(null);
+        setLoadingAiSummary(false);
+        setLastUserPrompt(null);
+        setCurrentOutputTab("results");
+
         try {
-            const r = await axiosInstance.post<JobSubmitResponse>("/api/bigquery/jobs", { sql });
-            const { job_id, location, state } = r.data;
+            // Find the selected dataset's metadata using the selectedDatasetId (short ID)
+            const selectedDatasetMetadata = availableDatasets.find(ds => ds.datasetId === selectedDatasetId);
+
+            if (!selectedDatasetMetadata) {
+                console.error("Could not find metadata in availableDatasets for:", selectedDatasetId);
+                console.error("Available datasets:", availableDatasets);
+                setJobError("Internal Error: Could not find selected dataset's metadata. Please refresh or re-select.");
+                setIsRunningJob(false);
+                return;
+            }
+
+            // +++ MODIFICATION START: Revert to fullDatasetId for default_dataset +++
+            const payload = {
+              sql,
+              priority: "BATCH",
+              use_legacy_sql: false,
+              // Send the FULLY QUALIFIED ID as required by the error message
+              default_dataset: fullDatasetId,
+              location: selectedDatasetMetadata.location,
+            };
+            // +++ MODIFICATION END +++
+            console.log("Job Payload:", payload);
+
+            // Fire the request
+            const r = await axiosInstance.post<JobSubmitResponse>("/api/bigquery/jobs", payload);
+            const { job_id, location: jobLoc, state } = r.data;
             console.log("Job Submitted:", r.data);
             setJobId(job_id);
-            setJobLocation(location);
-            setJobStatus({ job_id, location, state: state as any });
+            setJobLocation(jobLoc || selectedDatasetMetadata.location);
+            setJobStatus({ job_id, location: jobLoc || selectedDatasetMetadata.location, state: state as any });
+
         } catch (e: any) {
             console.error("Error submitting job:", e);
             const errMsg = `Submit failed: ${getErrorMessage(e)}`;
@@ -208,11 +374,62 @@ const BigQueryTableViewer: React.FC = () => {
             setJobLocation(null);
             addToHistory({ sql, success: false });
         }
-    }, [sql, stopPolling, addToHistory, getErrorMessage]);
+         // Dependencies are correct, no change needed here from previous step
+    }, [
+        sql,
+        stopPolling,
+        addToHistory,
+        getErrorMessage,
+        fullDatasetId,
+        selectedDatasetId,
+        availableDatasets,
+        toast
+    ]);
+
 
     // fetchTables, handleTableSelect, etc remain unchanged for now
-    const fetchTables = useCallback(async () => { setLoadingTables(true); setListTablesError(""); try { const r=await axiosInstance.get<TableInfo[]>(`/api/bigquery/tables?dataset_id=${encodeURIComponent(datasetId)}`); setTables(r.data); setFilteredTables(r.data); } catch (e:any){ console.error("Error fetching tables:",e); setListTablesError(`Load tables failed: ${getErrorMessage(e)}`); } finally { setLoadingTables(false); } }, [datasetId, getErrorMessage]);
-    const handleTableSelect = useCallback(async (tableId: string) => {
+    const fetchTables = useCallback(async () => {
+        // +++ Refined Guard Clause +++
+        // Ensure fullDatasetId is not empty AND contains a dot (basic check for project.dataset format)
+        // This prevents calls when selectedDatasetId is set but projectId isn't ready, or vice versa.
+        if (!fullDatasetId || !fullDatasetId.includes('.')) {
+            console.warn(`Skipping fetchTables: Invalid or empty fullDatasetId ('${fullDatasetId}')`);
+            setTables([]);
+            setFilteredTables([]);
+            setLoadingTables(false);
+            // Clear error state if skipping due to invalid ID, it's not a fetch failure yet.
+            setListTablesError("");
+            return; // Exit the function early
+        }
+        // +++ End Refined Guard Clause +++
+
+        console.log(`Fetching tables for dataset: ${fullDatasetId}`); // Log the ID being used
+        setLoadingTables(true);
+        setListTablesError("");
+        setTables([]); // Clear previous tables
+        setFilteredTables([]);
+        try {
+            const url = `/api/bigquery/tables?dataset_id=${encodeURIComponent(fullDatasetId)}`;
+            console.log(`Calling Table API: ${url}`); // Log the exact URL
+            const r = await axiosInstance.get<TableInfo[]>(url);
+            setTables(r.data);
+            setFilteredTables(r.data);
+            // Optional: Toast only if needed, can be noisy on dataset switch
+            // toast({ title: "Tables Loaded Successfully", variant: "default" });
+        }
+        catch (e:any){
+            console.error("Error fetching tables:", e);
+            const errorMessage = getErrorMessage(e);
+            console.error(`Full error message received in fetchTables: ${errorMessage}`); // Log the specific error
+            setListTablesError(`Load tables failed: ${errorMessage}`);
+        } finally {
+            setLoadingTables(false);
+        }
+    // Dependencies: Correctly includes fullDatasetId
+    }, [fullDatasetId, getErrorMessage, toast]);
+    
+    
+        const handleTableSelect = useCallback(async (tableId: string) => {
         stopPolling();
         setIsRunningJob(false);
         setJobId(null);
@@ -232,11 +449,11 @@ const BigQueryTableViewer: React.FC = () => {
         setPreviewCurrentPage(1);
         setTableStats(null);
         setPreviewSortConfig(null);
-        const defaultSql = `SELECT *\nFROM \`${datasetId}.${tableId}\`\nLIMIT 100;`;
+        const defaultSql = `SELECT *\nFROM \`${fullDatasetId}.${tableId}\`\nLIMIT 100;`;
         setSql(defaultSql);
         setCurrentOutputTab("data"); // Switch to PREVIEW tab
         try {
-            const url = `/api/bigquery/table-data?dataset_id=${encodeURIComponent(datasetId)}&table_id=${encodeURIComponent(tableId)}&page=1&limit=${previewRowsPerPage}`;
+            const url = `/api/bigquery/table-data?dataset_id=${encodeURIComponent(fullDatasetId)}&table_id=${encodeURIComponent(tableId)}&page=1&limit=${previewRowsPerPage}`;
             const r = await axiosInstance.get(url);
             const d = r.data;
             setPreviewRows(d?.rows ?? []);
@@ -250,14 +467,176 @@ const BigQueryTableViewer: React.FC = () => {
         } finally {
             setLoadingPreview(false);
         }
-     }, [datasetId, previewRowsPerPage, stopPolling, getErrorMessage]); // Dependencies remain the same
-    const handlePreviewPageChange = useCallback(async (newPage: number) => { if(!selectedTableId||newPage===previewCurrentPage)return; setLoadingPreview(true); setPreviewError(""); try { const url=`/api/bigquery/table-data?dataset_id=${encodeURIComponent(datasetId)}&table_id=${encodeURIComponent(selectedTableId)}&page=${newPage}&limit=${previewRowsPerPage}`; const r=await axiosInstance.get(url); const d=r.data; setPreviewRows(d?.rows??[]); setPreviewCurrentPage(newPage); if((d?.rows?.length>0)&&previewColumns.length===0)setPreviewColumns(Object.keys(d.rows[0])); } catch (e:any){ console.error("Error fetching page data:",e); setPreviewError(`Load page ${newPage} failed: ${getErrorMessage(e)}`); } finally { setLoadingPreview(false); } }, [selectedTableId, previewCurrentPage, previewRowsPerPage, datasetId, previewColumns.length, getErrorMessage]);
+     }, [fullDatasetId, previewRowsPerPage, stopPolling, getErrorMessage]); // Dependencies remain the same
+
+
+     const fetchAiSummary = useCallback(async () => {
+        if (!jobResults?.schema || jobResults.rows.length === 0 || !sql) {
+            console.warn("Cannot fetch AI summary: Missing results, schema, or SQL.");
+            return;
+        }
+        setLoadingAiSummary(true);
+        setAiSummary(null);
+        setAiSummaryError(null);
+
+        try {
+            const requestPayload: AISummaryRequest = {
+                schema: jobResults.schema,
+                query_sql: sql,
+                original_prompt: lastUserPrompt, // Send the stored prompt
+                result_sample: jobResults.rows.slice(0, 10) // Send first 10 rows as sample
+            };
+
+            const response = await axiosInstance.post<AISummaryResponse>(
+                '/api/bigquery/summarize-results',
+                requestPayload
+            );
+
+            if (response.data.error) {
+                setAiSummaryError(`AI Summary Error: ${response.data.error}`);
+            } else if (response.data.summary_text) {
+                setAiSummary(response.data.summary_text);
+            } else {
+                 setAiSummaryError("AI did not return a summary.");
+
+            }
+
+        } catch (error) {
+            console.error("Error fetching AI summary:", error);
+            const errorMsg = `Failed to get AI summary: ${getErrorMessage(error)}`;
+            setAiSummaryError(errorMsg);
+        } finally {
+            setLoadingAiSummary(false);
+        }
+    }, [jobResults, sql, lastUserPrompt, getErrorMessage]); // Dependencies
+    // +++ END Function to Fetch AI Summary +++
+
+
+    const handlePreviewPageChange = useCallback(async (newPage: number) => { if(!selectedTableId||newPage===previewCurrentPage)return; setLoadingPreview(true); setPreviewError(""); try { const url=`/api/bigquery/table-data?dataset_id=${encodeURIComponent(fullDatasetId)}&table_id=${encodeURIComponent(selectedTableId)}&page=${newPage}&limit=${previewRowsPerPage}`; const r=await axiosInstance.get(url); const d=r.data; setPreviewRows(d?.rows??[]); setPreviewCurrentPage(newPage); if((d?.rows?.length>0)&&previewColumns.length===0)setPreviewColumns(Object.keys(d.rows[0])); } catch (e:any){ console.error("Error fetching page data:",e); setPreviewError(`Load page ${newPage} failed: ${getErrorMessage(e)}`); } finally { setLoadingPreview(false); } }, [selectedTableId, previewCurrentPage, previewRowsPerPage, fullDatasetId, previewColumns.length, getErrorMessage]);
     const handlePreviewRowsPerPageChange = useCallback((value: string) => { const n=parseInt(value,10); setPreviewRowsPerPage(n); setPreviewCurrentPage(1); if(selectedTableId)handleTableSelect(selectedTableId);}, [selectedTableId, handleTableSelect]);
     const handlePreviewSort = useCallback((columnName: string) => { let d:"asc"|"desc"="asc"; if(previewSortConfig?.key===columnName&&previewSortConfig.direction==="asc")d="desc"; setPreviewSortConfig({key:columnName,direction:d}); const s=[...previewRows].sort((a,b)=>{ const valA=a[columnName], valB=b[columnName]; if(valA==null)return 1; if(valB==null)return -1; if(valA<valB)return d==="asc"?-1:1; if(valA>valB)return d==="asc"?1:-1; return 0; }); setPreviewRows(s);}, [previewSortConfig, previewRows]);
-    const fetchSchema = useCallback(async () => { setLoadingSchema(true); setSchemaError(""); setSchemaData(null); try { const url=`/api/bigquery/schema?dataset_id=${encodeURIComponent(datasetId)}`; const r=await axiosInstance.get<SchemaResponse>(url); setSchemaData(r.data); } catch(e){ console.error("Error fetching schema:",e); setSchemaError(`Load schema failed: ${getErrorMessage(e)}`); } finally { setLoadingSchema(false); } }, [datasetId, getErrorMessage]);
-    const handleGenerateSql = useCallback(async () => { if(!nlPrompt.trim()){setNlError("Please enter a description.");return;} setGeneratingSql(true); setNlError(""); setJobError(""); setJobResults(null); setJobStatus(null); setJobId(null); stopPolling(); setActiveFilters({}); setActiveVisualization(null); setSuggestedCharts([]); try { const r=await axiosInstance.post<NLQueryResponse>('/api/bigquery/nl2sql',{prompt:nlPrompt,dataset_id:datasetId}); if(r.data.error){setNlError(r.data.error);} else if(r.data.generated_sql){setSql(r.data.generated_sql); setNlPrompt("");} else {setNlError("AI did not return valid SQL.");} } catch(e){ console.error("Error generating SQL:",e); setNlError(`Generate SQL failed: ${getErrorMessage(e)}`); } finally { setGeneratingSql(false); } }, [nlPrompt, datasetId, stopPolling, getErrorMessage]);
+    
+    
+    const fetchSchema = useCallback(async () => {
+        // +++ Refined Guard Clause (Similar to fetchTables) +++
+        if (!fullDatasetId || !fullDatasetId.includes('.')) {
+            console.warn(`Skipping fetchSchema: Invalid or empty fullDatasetId ('${fullDatasetId}')`);
+            setSchemaData(null);
+            setLoadingSchema(false);
+            setSchemaError(""); // Clear schema error if skipping
+            return; // Exit early
+        }
+        // +++ End Refined Guard Clause +++
 
+        console.log(`Fetching schema for dataset: ${fullDatasetId}`);
+        setLoadingSchema(true);
+        setSchemaError("");
+        setSchemaData(null);
+        try {
+            const url = `/api/bigquery/schema?dataset_id=${encodeURIComponent(fullDatasetId)}`;
+            console.log(`Calling Schema API: ${url}`); // Log the exact URL
+            const r = await axiosInstance.get<SchemaResponse>(url);
+            setSchemaData(r.data);
+        } catch(e){
+            console.error("Error fetching schema:", e);
+            const errorMessage = getErrorMessage(e);
+            console.error(`Full error message received in fetchSchema: ${errorMessage}`); // Log the specific error
+            setSchemaError(`Load schema failed: ${errorMessage}`);
+        } finally {
+            setLoadingSchema(false);
+        }
+     // Dependencies: Correctly includes fullDatasetId
+    }, [fullDatasetId, getErrorMessage]);
+    
+    const handleGenerateSql = useCallback(async () => {
+        const currentPrompt = nlPrompt.trim(); // Capture prompt before clearing
+         if(!currentPrompt)
+            {
+                setNlError("Please enter a description.");
+                return;
+            } 
+            setGeneratingSql(true); setNlError(""); setJobError(""); setJobResults(null); setJobStatus(null); setJobId(null); stopPolling(); setActiveFilters({}); setActiveVisualization(null); setSuggestedCharts([]);
+            setAiSummary(null);
+        setAiSummaryError(null);
+        setLoadingAiSummary(false);
+        setLastUserPrompt(currentPrompt);  try { const r=await axiosInstance.post<NLQueryResponse>('/api/bigquery/nl2sql',{prompt:nlPrompt,dataset_id:fullDatasetId}); if(r.data.error){setNlError(r.data.error);} else if(r.data.generated_sql){setSql(r.data.generated_sql); setNlPrompt("");} else {setNlError("AI did not return valid SQL.");} } catch(e){ console.error("Error generating SQL:",e); setNlError(`Generate SQL failed: ${getErrorMessage(e)}`); } finally { setGeneratingSql(false); } }, [nlPrompt, fullDatasetId, stopPolling, getErrorMessage]);
 
+// Add this useEffect for initial dataset loading
+useEffect(() => {
+    const fetchInitialDatasets = async () => {
+        console.log("Fetching initial list of datasets...");
+        setLoadingDatasets(true);
+        setDatasetError(null);
+        setAvailableDatasets([]);
+        setSelectedDatasetId("");
+        try {
+            const resp = await axiosInstance.get<DatasetListApiResponse>('/api/bigquery/datasets');
+            const datasets = resp.data.datasets.sort((a, b) =>
+                a.datasetId.localeCompare(b.datasetId)
+            );
+            setAvailableDatasets(datasets);
+
+            if (datasets.length > 0) {
+                setSelectedDatasetId(datasets[0].datasetId);
+                toast({ title: `Selected initial dataset: ${datasets[0].datasetId}`, variant: "default", duration: 2000});
+            } else {
+                setDatasetError("No accessible datasets found.");
+                setTables([]);
+                setFilteredTables([]);
+                setSchemaData(null);
+            }
+        } catch (error: any) {
+            console.error("Error fetching datasets:", error);
+            const message = getErrorMessage(error);
+            setDatasetError(`Failed to load datasets: ${message}`);
+            setTables([]);
+            setFilteredTables([]);
+            setSchemaData(null);
+        } finally {
+            setLoadingDatasets(false);
+        }
+    };
+    fetchInitialDatasets();
+}, [getErrorMessage, toast]);
+const handleDatasetChange = (newDatasetId: string) => {
+    if (newDatasetId && newDatasetId !== selectedDatasetId) {
+        console.log(`Dataset selection changed to: ${newDatasetId}`);
+        toast({title: `Switching to dataset: ${newDatasetId}`, duration: 1500});
+        setSelectedDatasetId(newDatasetId);
+    }
+};
+useEffect(() => {
+    if (selectedDatasetId) {
+        // Reset table/schema related state *before* fetching new data
+        setTables([]);
+        setFilteredTables([]);
+        setSchemaData(null);
+        setListTablesError("");
+        setSchemaError("");
+        setSelectedTableId(null);
+        setPreviewRows([]);
+        setPreviewColumns([]);
+        setPreviewTotalRows(0);
+        setPreviewCurrentPage(1);
+        setTableStats(null);
+        setPreviewError("");
+        setJobId(null);
+        setJobLocation(null);
+        setJobStatus(null);
+        setJobError("");
+        setJobResults(null);
+        setResultsError("");
+        setActiveFilters({});
+        setActiveVisualization(null);
+        setSuggestedCharts([]);
+        setAiSummary(null);
+        setAiSummaryError(null);
+
+        // Trigger fetches for the new dataset
+        fetchTables();
+        fetchSchema();
+    }
+}, [selectedDatasetId, fetchTables, fetchSchema]);
     // --- Filter Generation Effect ---
     useEffect(() => {
         if (jobResults?.rows && jobResults.rows.length > 0 && jobResults.schema) {
@@ -479,133 +858,123 @@ const BigQueryTableViewer: React.FC = () => {
     useEffect(() => { fetchTables(); fetchSchema(); }, [fetchTables, fetchSchema]);
     useEffect(() => { const lq=tableSearchQuery.toLowerCase(); setFilteredTables(tables.filter(t=>t.tableId.toLowerCase().includes(lq))); }, [tableSearchQuery, tables]);
     // Modify history effect to use original row count if available
-    useEffect(() => {
-        if(jobResults && jobId && !jobError && !isRunningJob && jobStatus?.statement_type === 'SELECT'){
-            addToHistory({
-                sql,
-                success: true,
-                // Use total_rows_in_result_set from the original response if available
-                rowCount: jobResults.total_rows_in_result_set ?? jobResults.rows.length
-            });
+// NEW useEffect for successful history
+useEffect(() => {
+    // Add history item when a job finishes successfully
+    // Check jobStatus directly for the 'DONE' state without error
+    if (jobId && jobStatus?.state === 'DONE' && !jobStatus.error_result && !isRunningJob) {
+        console.log("Attempting to add successful query to history:", jobId, jobStatus); // Debug log
+
+        let durationMs: number | undefined = undefined;
+        if (jobStatus.end_time && jobStatus.start_time) {
+            try {
+                const end = new Date(jobStatus.end_time).getTime();
+                const start = new Date(jobStatus.start_time).getTime();
+                if (!isNaN(end) && !isNaN(start)) {
+                    durationMs = end - start;
+                } else {
+                    console.warn("History duration calc: Invalid dates", jobStatus.start_time, jobStatus.end_time);
+                }
+            } catch (e) {
+                console.warn("Could not parse history duration:", e);
+            }
         }
-     }, [jobResults, jobId, jobError, isRunningJob, sql, addToHistory, jobStatus?.statement_type]);
+
+        // Determine row count based on statement type
+        let finalRowCount: number | undefined = undefined;
+        if (jobStatus.statement_type === 'SELECT') {
+            // Use jobResults if available, otherwise fallback if needed (though it should be fetched)
+            finalRowCount = jobResults?.total_rows_in_result_set ?? jobResults?.rows?.length;
+        } else {
+            // Use num_dml_affected_rows for non-SELECT statements if available
+            finalRowCount = jobStatus.num_dml_affected_rows;
+        }
+
+        addToHistory({
+            sql, // Assumes 'sql' state holds the executed query
+            success: true,
+            rowCount: finalRowCount,
+            durationMs: durationMs,
+            bytesProcessed: jobStatus.total_bytes_processed
+        });
+    }
+    // Dependencies: run when jobStatus changes, or when isRunningJob flips to false
+    // Need jobId and sql as context. addToHistory is stable. jobResults needed for row count.
+}, [jobStatus, isRunningJob, jobId, sql, addToHistory, jobResults]); // Added jobResults dependency back for rowCount
+
 
     // --- Modified Effect for Visualization Suggestions & Validity Check ---
     useEffect(() => {
-        // Suggestion generation based on ORIGINAL data
-        if (jobResults?.schema && jobResults.rows.length > 0) {
-            console.log("Calculating chart suggestions based on original data...");
-            const schema = jobResults.schema;
-            const rows = jobResults.rows; // Use original rows for rule generation
-            const ruleBasedSuggestions: VizSuggestion[] = [];
+        // --- Trigger AI Features when results are available and job is done ---
+        if (jobResults?.schema && jobResults.rows.length > 0 && !isRunningJob && jobStatus?.state === 'DONE' && !jobStatus.error_result) {
+            console.log("Results available, triggering AI features (suggestions & summary)...");
 
-            // --- Rule generation logic (remains the same as before, using original `rows` and `schema`) ---
-            const isNumeric = (type: string) => ['INTEGER', 'INT64', 'FLOAT', 'FLOAT64', 'NUMERIC', 'BIGNUMERIC'].includes(type);
-            const isString = (type: string) => type === 'STRING';
-            const isDate = (type: string) => ['DATE', 'DATETIME', 'TIMESTAMP'].includes(type);
-            const numericCols = schema.filter(f => isNumeric(f.type)).map(f => f.name);
-            const stringCols = schema.filter(f => isString(f.type)).map(f => f.name);
-            const dateCols = schema.filter(f => isDate(f.type)).map(f => f.name);
-
-            // Rule 1: Bar
-            if (stringCols.length === 1 && numericCols.length >= 1) { ruleBasedSuggestions.push({ /* ... */ chart_type: 'bar', x_axis_column: stringCols[0], y_axis_columns: numericCols, rationale: `Compare ${numericCols.join(', ')} across '${stringCols[0]}'.` }); }
-            // Rule 2: Line
-            if (dateCols.length === 1 && numericCols.length >= 1) {
-                const dateColumnName = dateCols[0];
-                 // Check using original rows
-                const looksLikeValidDate = rows.slice(0, 10).every(row => !row[dateColumnName] || !isNaN(Date.parse(row[dateColumnName])));
-                if (looksLikeValidDate) { ruleBasedSuggestions.push({ /* ... */ chart_type: 'line', x_axis_column: dateColumnName, y_axis_columns: numericCols, rationale: `Track ${numericCols.join(', ')} over time ('${dateColumnName}').` }); }
-             }
-             // Rule 3: Scatter
-            if (numericCols.length >= 2) { ruleBasedSuggestions.push({ /* ... */ chart_type: 'scatter', x_axis_column: numericCols[0], y_axis_columns: [numericCols[1]], rationale: `Relationship between '${numericCols[0]}' and '${numericCols[1]}'.` }); }
-            // Rule 4: Pie
-            if (stringCols.length === 1 && numericCols.length === 1) {
-                const categoryCol = stringCols[0];
-                const valueCol = numericCols[0];
-                 // Check unique categories in original rows
-                 const uniqueCategories = new Set(rows.map(r => r[categoryCol]));
-                 if (uniqueCategories.size > 1 && uniqueCategories.size <= 12) { ruleBasedSuggestions.push({ chart_type: 'pie', x_axis_column: categoryCol, y_axis_columns: [valueCol], rationale: `Proportion of '${valueCol}' for each '${categoryCol}'.` }); }
-            }
-            // --- End Rule Generation ---
-
-
-             // --- Fetch AI Suggestions ---
-             const fetchAiSuggestions = async () => {
+            // --- Fetch AI Suggestions (Visualization) ---
+            const fetchAiSuggestions = async () => {
+                // ... (suggestion fetching logic - unchanged) ...
                 if (!jobResults?.schema) return [];
-                setLoadingAiSuggestions(true);
-                setAiSuggestionError("");
+                setLoadingAiSuggestions(true); setAiSuggestionError("");
                 try {
-                    const response = await axiosInstance.post<{suggestions: VizSuggestion[], error?: string}>(
-                        '/api/bigquery/suggest-visualization',
-                        {
-                            schema: jobResults.schema,
-                            query_sql: sql,
-                            // Send FILTERED sample to AI for potentially better context on current view
-                            result_sample: filteredData.slice(0, 5)
-                        }
-                    );
-                    if (response.data.error) {
-                        setAiSuggestionError(`AI Error: ${response.data.error}`); return [];
-                    }
-                    console.log("AI Suggestions Received:", response.data.suggestions);
-                    return response.data.suggestions || [];
-                } catch (error) {
-                    console.error("Error fetching AI suggestions:", error);
-                    setAiSuggestionError(`Failed to get AI suggestions: ${getErrorMessage(error)}`); return [];
-                } finally { setLoadingAiSuggestions(false); }
-             };
+                    const response = await axiosInstance.post<{suggestions: VizSuggestion[], error?: string}>( '/api/bigquery/suggest-visualization', { schema: jobResults.schema, query_sql: sql, result_sample: filteredData.slice(0, 5) });
+                    if (response.data.error) { setAiSuggestionError(`AI Viz Error: ${response.data.error}`); return []; }
+                    console.log("AI Suggestions Received:", response.data.suggestions); return response.data.suggestions || [];
+                } catch (error) { console.error("Error fetching AI suggestions:", error); setAiSuggestionError(`Failed to get AI suggestions: ${getErrorMessage(error)}`); return []; }
+                finally { setLoadingAiSuggestions(false); }
+            };
 
-            // Combine rule-based and fetch AI ones
+             // --- Combine rule-based and AI suggestions ---
+             // Rules can be generated immediately
+             const schema = jobResults.schema; const rows = jobResults.rows; const ruleBasedSuggestions: VizSuggestion[] = [];
+             const isNumeric = (type: string) => ['INTEGER', 'INT64', 'FLOAT', 'FLOAT64', 'NUMERIC', 'BIGNUMERIC'].includes(type); const isString = (type: string) => type === 'STRING'; const isDate = (type: string) => ['DATE', 'DATETIME', 'TIMESTAMP'].includes(type); const numericCols = schema.filter(f => isNumeric(f.type)).map(f => f.name); const stringCols = schema.filter(f => isString(f.type)).map(f => f.name); const dateCols = schema.filter(f => isDate(f.type)).map(f => f.name);
+             if (stringCols.length === 1 && numericCols.length >= 1) { ruleBasedSuggestions.push({ chart_type: 'bar', x_axis_column: stringCols[0], y_axis_columns: numericCols, rationale: `Compare ${numericCols.join(', ')} across '${stringCols[0]}'.` }); }
+             if (dateCols.length === 1 && numericCols.length >= 1) { const dateColumnName = dateCols[0]; const looksLikeValidDate = rows.slice(0, 10).every(row => !row[dateColumnName] || !isNaN(Date.parse(row[dateColumnName]))); if (looksLikeValidDate) { ruleBasedSuggestions.push({ chart_type: 'line', x_axis_column: dateColumnName, y_axis_columns: numericCols, rationale: `Track ${numericCols.join(', ')} over time ('${dateColumnName}').` }); } }
+             if (numericCols.length >= 2) { ruleBasedSuggestions.push({ chart_type: 'scatter', x_axis_column: numericCols[0], y_axis_columns: [numericCols[1]], rationale: `Relationship between '${numericCols[0]}' and '${numericCols[1]}'.` }); }
+             if (stringCols.length === 1 && numericCols.length === 1) { const categoryCol = stringCols[0]; const valueCol = numericCols[0]; const uniqueCategories = new Set(rows.map(r => r[categoryCol])); if (uniqueCategories.size > 1 && uniqueCategories.size <= 12) { ruleBasedSuggestions.push({ chart_type: 'pie', x_axis_column: categoryCol, y_axis_columns: [valueCol], rationale: `Proportion of '${valueCol}' for each '${categoryCol}'.` }); } }
+
              fetchAiSuggestions().then(aiSuggestions => {
-                 // De-duplication logic...
                  const combined = [...ruleBasedSuggestions];
-                 aiSuggestions.forEach(aiSugg => {
-                     if (!combined.some(rbSugg => rbSugg.chart_type === aiSugg.chart_type && rbSugg.x_axis_column === aiSugg.x_axis_column && rbSugg.y_axis_columns[0] === aiSugg.y_axis_columns[0])) {
-                         combined.push({...aiSugg, rationale: aiSugg.rationale ?? `AI suggested ${aiSugg.chart_type} chart.` });
-                     }
-                 });
+                 aiSuggestions.forEach(aiSugg => { if (!combined.some(rbSugg => rbSugg.chart_type === aiSugg.chart_type && rbSugg.x_axis_column === aiSugg.x_axis_column && rbSugg.y_axis_columns[0] === aiSugg.y_axis_columns[0])) { combined.push({...aiSugg, rationale: aiSugg.rationale ?? `AI suggested ${aiSugg.chart_type} chart.` }); } });
                  console.log("Final combined suggestions:", combined);
                  setSuggestedCharts(combined);
-
-                 // --- Visualization Validity Check ---
-                 if (activeVisualization) {
-                     const { x_axis_column, y_axis_columns } = activeVisualization;
-                     const currentFilteredData = filteredData; // Check against the currently filtered data
-
-                     // Check if filtered data is empty OR if required columns are missing
-                     const isInvalid = currentFilteredData.length === 0 ||
-                         (currentFilteredData.length > 0 && (
-                             !currentFilteredData[0].hasOwnProperty(x_axis_column) ||
-                             !y_axis_columns.every(col => currentFilteredData[0].hasOwnProperty(col))
-                         ));
-
-                     if (isInvalid) {
-                          console.warn("Active visualization might be invalid due to filtering. Clearing.");
-                          setActiveVisualization(null);
-                          // Optionally switch back to results tab if visualize was active
-                          if (currentOutputTab === 'visualize') {
-                              setCurrentOutputTab('results');
-                          }
-                      }
-                  }
-                 // --- End Validity Check ---
              });
 
-        } else {
-            // Clear suggestions if no original results
-            setSuggestedCharts([]);
-            setActiveVisualization(null); // Also clear active viz
-            if (currentOutputTab === 'visualize') {
-                setCurrentOutputTab('results');
+             // --- Fetch AI Summary ---
+             // Trigger summary fetch here as results are ready
+             fetchAiSummary();
+
+        } else if (!isRunningJob && (jobStatus?.state !== 'DONE' || jobStatus?.error_result)) {
+             // Clear suggestions and summary if the job didn't finish successfully or had an error
+             setSuggestedCharts([]);
+             setAiSummary(null);
+             // Don't clear errors here, they might be displayed elsewhere
+        }
+
+        // --- Visualization Validity Check (runs when filters change too) ---
+        if (activeVisualization) {
+            const { x_axis_column, y_axis_columns } = activeVisualization;
+            const currentFilteredData = filteredData; // Check against the currently filtered data
+            const isInvalid = currentFilteredData.length === 0 ||
+                (currentFilteredData.length > 0 && (
+                    !currentFilteredData[0]?.hasOwnProperty(x_axis_column) || // Optional chaining for safety
+                    !y_axis_columns.every(col => currentFilteredData[0]?.hasOwnProperty(col))
+                ));
+
+            if (isInvalid) {
+                console.warn("Active visualization might be invalid due to filtering. Clearing.");
+                toast.warning("Current visualization cleared due to data filtering.", { duration: 3000 });
+                setActiveVisualization(null);
+                if (currentOutputTab === 'visualize') {
+                    setCurrentOutputTab('results'); // Switch back if the active viz tab is open and becomes invalid
+                }
             }
         }
-    // Dependencies:
-    // - jobResults: For generating rules based on original data/schema
-    // - filteredData: For sending sample to AI and checking active viz validity
-    // - activeVisualization: To know *which* viz to check for validity
-    // - sql, getErrorMessage: For AI request context
-    // - currentOutputTab: For potentially switching tabs if viz becomes invalid
-    }, [jobResults, sql, getErrorMessage, filteredData, activeVisualization, currentOutputTab]);
+
+    // Dependencies: Include fetchAiSummary, isRunningJob, jobStatus.state, jobStatus.error_result
+    // Also keep existing dependencies for viz check
+    }, [
+        jobResults, sql, getErrorMessage, filteredData, activeVisualization,
+        currentOutputTab, fetchAiSummary, isRunningJob, jobStatus?.state, jobStatus?.error_result // Added new deps
+    ]);
 
 
     // Editor resizing logic (remains unchanged)
@@ -620,20 +989,61 @@ const BigQueryTableViewer: React.FC = () => {
      const renderSidebarContent = () => { /* ... NO CHANGES ... */
         return (
              <div className="p-3 flex flex-col h-full text-sm">
+                            <div className="mb-3 border-b pb-3 flex-shrink-0">
+                <label htmlFor="dataset-select" className="block text-xs font-medium text-muted-foreground mb-1.5">
+                    Select Team (Dataset)
+                </label>
+                {loadingDatasets && (
+                    <div className="flex items-center text-xs text-muted-foreground h-8">
+                        <Loader2 className="mr-2 h-3 w-3 animate-spin" /> Loading...
+                    </div>
+                )}
+                {datasetError && !loadingDatasets && (
+                    <Alert variant="destructive" className="text-xs p-2">
+                        <Terminal className="h-3 w-3" />
+                        <AlertTitle className="text-xs font-medium">Error</AlertTitle>
+                        <AlertDescription className="text-xs">{datasetError}</AlertDescription>
+                    </Alert>
+                )}
+                {!loadingDatasets && !datasetError && (
+                    <Select
+                        value={selectedDatasetId}
+                        onValueChange={handleDatasetChange}
+                        disabled={loadingTables || loadingSchema || isRunningJob || availableDatasets.length === 0}
+                    >
+                        <SelectTrigger id="dataset-select" className="w-full h-8 text-xs">
+                            <SelectValue placeholder="Select a dataset..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                            {availableDatasets.length === 0 && !loadingDatasets ? (
+                                <SelectItem value="no-datasets" disabled className="text-xs">
+                                    No datasets found
+                                </SelectItem>
+                            ) : (
+                                availableDatasets.map(ds => (
+                                    <SelectItem key={ds.datasetId} value={ds.datasetId} className="text-xs">
+                                        {ds.datasetId} <span className="text-xs text-muted-foreground ml-1">({ds.location})</span>
+                                    </SelectItem>
+                                ))
+                            )}
+                        </SelectContent>
+                    </Select>
+                )}
+            </div>
                 <h2 className="font-semibold text-base mb-2 flex items-center text-foreground flex-shrink-0">
                     <Database className="mr-2 h-4 w-4 text-primary" />
                     Dataset Explorer
                 </h2>
-                <p className="text-xs text-muted-foreground mb-3 truncate flex-shrink-0" title={datasetId}>
-                    {datasetId}
+                <p className="text-xs text-muted-foreground mb-3 truncate flex-shrink-0" title={fullDatasetId}>
+                    {fullDatasetId}
                 </p>
                 <Tabs value={currentSidebarTab} onValueChange={setCurrentSidebarTab} className="flex-grow flex flex-col overflow-hidden">
                     <TabsList className="grid grid-cols-4 mb-3 h-8 bg-muted flex-shrink-0">
                          {/* Tabs use default theme styles */}
                         <TabsTrigger value="tables" className="text-xs h-7"><Database className="mr-1 h-3 w-3"/>Tables</TabsTrigger>
-                        {/* <TabsTrigger value="favorites" className="text-xs h-7"><Bookmark className="mr-1 h-3 w-3"/>Favorites</TabsTrigger>
+                        <TabsTrigger value="favorites" className="text-xs h-7"><Bookmark className="mr-1 h-3 w-3"/>Favorites</TabsTrigger>
                         <TabsTrigger value="history" className="text-xs h-7"><History className="mr-1 h-3 w-3"/>History</TabsTrigger>
-                        <TabsTrigger value="schema" className="text-xs h-7"><ListTree className="mr-1 h-3 w-3"/>Schema</TabsTrigger> */}
+                        <TabsTrigger value="schema" className="text-xs h-7"><ListTree className="mr-1 h-3 w-3"/>Schema</TabsTrigger>
                     </TabsList>
                     <div className="flex-grow overflow-hidden">
                         <TabsContent value="tables" className="mt-0 h-full flex flex-col">
@@ -667,6 +1077,7 @@ const BigQueryTableViewer: React.FC = () => {
         );
     };
     const renderTablesList = () => { /* ... NO CHANGES ... */
+        if (!selectedDatasetId) return (<div className="text-center py-8 text-muted-foreground text-sm">Select a dataset first.</div>);
         if(loadingTables){return(<div className="flex justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-primary"/></div>);}
         if(listTablesError){return(<Alert variant="destructive" className="mt-2 text-xs"><Terminal className="h-4 w-4"/><AlertTitle>Error</AlertTitle><AlertDescription>{listTablesError}</AlertDescription><Button onClick={fetchTables} variant="link" size="sm" className="mt-2 h-auto p-0 text-xs">Try Again</Button></Alert>);}
         const displayTables = filteredTables.filter(t => t.tableId.toLowerCase().includes(tableSearchQuery.toLowerCase()));
@@ -702,6 +1113,8 @@ const BigQueryTableViewer: React.FC = () => {
         );
     };
     const renderFavoritesList = () => { /* ... NO CHANGES ... */
+        const favsInCurrentDataset = tables.filter(t => favoriteTables.includes(t.tableId));
+    if(favsInCurrentDataset.length === 0) return (<div className="text-center py-8 text-muted-foreground text-sm">No favorites{selectedDatasetId ? ` in ${selectedDatasetId}` : ''}.</div>);
         const favs=tables.filter(t=>favoriteTables.includes(t.tableId));
         if(favs.length===0){return(<div className="text-center py-8 text-muted-foreground text-sm">No favorites.</div>);}
         return(
@@ -727,30 +1140,86 @@ const BigQueryTableViewer: React.FC = () => {
             </ScrollArea>
         );
     };
-    const renderQueryHistory = () => { /* ... NO CHANGES ... */
-        const displayHistory = queryHistory.filter(item => item.sql.toLowerCase().includes(historySearchQuery.toLowerCase()));
-        if(displayHistory.length===0){return(<div className="text-center py-8 text-muted-foreground text-sm">No history{historySearchQuery && ` matching "${historySearchQuery}"`}.</div>);}
-        return(
+
+
+
+    const renderQueryHistory = () => {
+        const displayHistory = queryHistory.filter(item =>
+            item.sql.toLowerCase().includes(historySearchQuery.toLowerCase())
+        );
+
+        if (displayHistory.length === 0) {
+            return (
+                <div className="text-center py-8 text-muted-foreground text-sm">
+                    No history{historySearchQuery && ` matching "${historySearchQuery}"`}.
+                </div>
+            );
+        }
+
+        return (
             <ScrollArea className="h-full pb-4">
                 <div className="space-y-1.5 pr-2">
-                    {displayHistory.map((item)=>(
-                        <div key={item.id} className="rounded-md border bg-card p-2 text-card-foreground transition-all hover:shadow-sm cursor-pointer hover:bg-muted/50" onClick={()=>setSql(item.sql)}>
+                    {displayHistory.map((item) => (
+                        <div
+                            key={item.id}
+                            className="rounded-md border bg-card p-2 text-card-foreground transition-all hover:shadow-sm cursor-pointer hover:bg-muted/50"
+                            onClick={() => setSql(item.sql)}
+                        >
                             <div className="flex justify-between items-center mb-1">
-                                {/* Badge uses default theme variants */}
-                                <Badge variant={item.success?"success":"destructive"} className="text-xs px-1.5 py-0 h-5">{item.success?'Success':'Failed'}</Badge>
-                                <span className="text-xs text-muted-foreground">{new Date(item.timestamp).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</span>
+                                <Badge variant={item.success ? "success" : "destructive"} className="text-xs px-1.5 py-0 h-5">
+                                    {item.success ? 'Success' : 'Failed'}
+                                </Badge>
+                                <span className="text-xs text-muted-foreground">
+                                    {new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                </span>
                             </div>
-                            <TooltipProvider delayDuration={500}><Tooltip><TooltipTrigger asChild>
-                                <div className="text-xs font-mono bg-muted p-1.5 rounded max-h-16 overflow-hidden text-ellipsis whitespace-pre text-muted-foreground">{item.sql}</div>
-                            </TooltipTrigger><TooltipContent side="bottom" align="start"><pre className="text-xs max-w-md bg-popover text-popover-foreground p-2 rounded border">{item.sql}</pre></TooltipContent></Tooltip></TooltipProvider>
-                            {item.rowCount!==undefined&&(<div className="text-xs text-muted-foreground mt-1">{item.rowCount.toLocaleString()} rows</div>)}
+                            <TooltipProvider delayDuration={500}>
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <div className="text-xs font-mono bg-muted p-1.5 rounded max-h-16 overflow-hidden text-ellipsis whitespace-pre text-muted-foreground">
+                                            {item.sql}
+                                        </div>
+                                    </TooltipTrigger>
+                                    <TooltipContent side="bottom" align="start">
+                                        <pre className="text-xs max-w-md bg-popover text-popover-foreground p-2 rounded border">
+                                            {item.sql}
+                                        </pre>
+                                    </TooltipContent>
+                                </Tooltip>
+                            </TooltipProvider>
+                            {/* Display Row Count */}
+                            {item.rowCount !== undefined && (
+                                <div className="text-xs text-muted-foreground mt-1.5">
+                                    {item.rowCount.toLocaleString()} rows
+                                </div>
+                            )}
+                            {/* --- NEW: Display Duration and Bytes --- */}
+                            <div className="flex items-center justify-between mt-1 text-xs text-muted-foreground gap-2 flex-wrap">
+                                {item.durationMs !== undefined && item.durationMs >= 0 && ( // Check duration exists and is non-negative
+                                    <span className="flex items-center gap-0.5" title="Query Duration">
+                                        <Clock className="h-2.5 w-2.5 flex-shrink-0" />
+                                        {(item.durationMs / 1000).toFixed(2)}s
+                                    </span>
+                                )}
+                                {item.bytesProcessed !== undefined && item.bytesProcessed >= 0 && ( // Check bytes exist and are non-negative
+                                    <span className="flex items-center gap-0.5" title="Bytes Processed">
+                                        <Database className="h-2.5 w-2.5 flex-shrink-0" />
+                                        {formatBytes(item.bytesProcessed)}
+                                    </span>
+                                )}
+                            </div>
+                            {/* --- END NEW --- */}
                         </div>
                     ))}
                 </div>
             </ScrollArea>
         );
     };
+
+
+
     const renderSchemaViewer = () => { /* ... NO CHANGES ... */
+        if (!selectedDatasetId) return (<div className="text-center py-8 text-muted-foreground text-sm">Select a dataset first.</div>);
         const displayTables = schemaData?.tables.filter(t => t.table_id.toLowerCase().includes(schemaSearchQuery.toLowerCase())) ?? [];
         return(
             <div className="h-full pb-1 flex flex-col text-sm">
@@ -761,7 +1230,7 @@ const BigQueryTableViewer: React.FC = () => {
                         <AccordionItem value={t.table_id} key={t.table_id} className="border rounded-md mb-1.5 bg-card shadow-sm">
                             <AccordionTrigger className="text-xs hover:no-underline py-1.5 px-2 font-medium text-card-foreground hover:bg-muted/50 rounded-t-md"><div className="flex items-center gap-2"><Table2 className="h-3.5 w-3.5 text-primary"/><span className="truncate">{t.table_id}</span></div></AccordionTrigger>
                             <AccordionContent className="pt-0 px-2 pb-1.5">
-                                <div className="text-xs"><div className="border bg-background rounded-sm overflow-hidden text-[11px]"><table className="w-full"><thead><tr className="bg-muted border-b"><th className="px-2 py-1 text-left font-medium text-muted-foreground">Column</th><th className="px-2 py-1 text-left font-medium text-muted-foreground">Type</th><th className="px-2 py-1 text-left font-medium text-muted-foreground">Mode</th></tr></thead><tbody>{t.columns.map((c,i)=>(<tr key={c.name} className={i%2===0?'bg-card':'bg-muted/50'}><td className="px-2 py-0.5 font-mono text-foreground truncate max-w-20">{c.name}</td><td className="px-2 py-0.5 text-foreground">{c.type}</td><td className="px-2 py-0.5"><Badge variant={c.mode==='REQUIRED'?'default':'outline'} className="text-[10px] px-1 py-0 h-4">{c.mode}</Badge></td></tr>))}</tbody></table></div><div className="mt-1.5 flex justify-end"><Button variant="ghost" size="xs" className="text-xs h-6 text-muted-foreground hover:text-primary" onClick={()=>{const s=`SELECT ${t.columns.slice(0,5).map(c=>c.name).join(', ')}\nFROM \`${datasetId}.${t.table_id}\`\nLIMIT 100;`;setSql(s);}}><Code className="mr-1 h-3 w-3"/>Query</Button></div></div>
+                                <div className="text-xs"><div className="border bg-background rounded-sm overflow-hidden text-[11px]"><table className="w-full"><thead><tr className="bg-muted border-b"><th className="px-2 py-1 text-left font-medium text-muted-foreground">Column</th><th className="px-2 py-1 text-left font-medium text-muted-foreground">Type</th><th className="px-2 py-1 text-left font-medium text-muted-foreground">Mode</th></tr></thead><tbody>{t.columns.map((c,i)=>(<tr key={c.name} className={i%2===0?'bg-card':'bg-muted/50'}><td className="px-2 py-0.5 font-mono text-foreground truncate max-w-20">{c.name}</td><td className="px-2 py-0.5 text-foreground">{c.type}</td><td className="px-2 py-0.5"><Badge variant={c.mode==='REQUIRED'?'default':'outline'} className="text-[10px] px-1 py-0 h-4">{c.mode}</Badge></td></tr>))}</tbody></table></div><div className="mt-1.5 flex justify-end"><Button variant="ghost" size="xs" className="text-xs h-6 text-muted-foreground hover:text-primary" onClick={()=>{const s=`SELECT ${t.columns.slice(0,5).map(c=>c.name).join(', ')}\nFROM \`${fullDatasetId}.${t.table_id}\`\nLIMIT 100;`;setSql(s);}}><Code className="mr-1 h-3 w-3"/>Query</Button></div></div>
                             </AccordionContent>
                         </AccordionItem>))} </Accordion></ScrollArea>)}
                     {(!schemaData||displayTables.length===0)&&!loadingSchema&&!schemaError&&(<div className="text-center py-6 text-muted-foreground text-sm">No schema{schemaSearchQuery&&` matching "${schemaSearchQuery}"`}.</div>)}
@@ -773,6 +1242,8 @@ const BigQueryTableViewer: React.FC = () => {
         );
     };
     const renderTablePreview = () => { /* ... NO CHANGES ... */
+        if (!selectedDatasetId) return (<div className="flex items-center justify-center h-full text-muted-foreground p-6"><div className="text-center"><Database className="h-12 w-12 mx-auto mb-4 opacity-20"/><h3 className="text-lg font-medium mb-2">No Dataset Selected</h3><p className="text-sm">Select a dataset from the sidebar.</p></div></div>);
+        // ... rest of the existing function
         if(!selectedTableId)return(<div className="flex items-center justify-center h-full text-muted-foreground"><div className="text-center p-6"><Database className="h-12 w-12 mx-auto mb-4 opacity-20"/><h3 className="text-lg font-medium mb-2">No Table Selected</h3><p className="text-sm">Select a table from the sidebar.</p></div></div>);
         if(loadingPreview)return(<div className="flex justify-center items-center h-full"><div className="text-center"><Loader2 className="h-8 w-8 animate-spin mx-auto mb-3 text-primary"/><p className="text-sm text-muted-foreground">Loading preview...</p></div></div>);
         if(previewError)return(<Alert variant="destructive" className="m-4"><Terminal className="h-4 w-4"/><AlertTitle>Preview Error</AlertTitle><AlertDescription>{previewError}</AlertDescription><Button onClick={()=>handleTableSelect(selectedTableId)} variant="link" size="sm" className="mt-2 h-auto p-0">Try Again</Button></Alert>);
@@ -807,7 +1278,7 @@ const BigQueryTableViewer: React.FC = () => {
                     <div className="flex gap-1">
                         {/* Buttons use default theme variants/colors */}
                         <Button variant="ghost" size="xs" onClick={()=>toggleFavorite(selectedTableId)} className={`h-7 ${favoriteTables.includes(selectedTableId)?"text-yellow-500 dark:text-yellow-400":""}`}><Bookmark className="mr-1 h-3 w-3" fill={favoriteTables.includes(selectedTableId)?"currentColor":"none"}/>Fav</Button>
-                        <Button variant="ghost" size="xs" onClick={()=>copyToClipboard(`\`${datasetId}.${selectedTableId}\``,"Table name copied!")} className="h-7"><Copy className="mr-1 h-3 w-3"/>Copy</Button>
+                        <Button variant="ghost" size="xs" onClick={()=>copyToClipboard(`\`${fullDatasetId}.${selectedTableId}\``,"Table name copied!")} className="h-7"><Copy className="mr-1 h-3 w-3"/>Copy</Button>
                     </div>
                 </div>
                 {statsDisp}
@@ -863,6 +1334,33 @@ const BigQueryTableViewer: React.FC = () => {
                          className="absolute inset-0 w-full h-full resize-none rounded-none border-0 font-mono text-sm leading-relaxed focus-visible:ring-0 focus-visible:ring-offset-0 p-2 bg-background caret-foreground selection:bg-primary/20"
                       />
                 </div>
+                                 {/* --- MODIFIED: Editor Area --- */}
+                                 <div className="flex-grow relative bg-background"> {/* Added bg-background for theme consistency */}
+                     {/* --- Replace Textarea with Monaco Editor --- */}
+                     {/* <Textarea value={sql} onChange={(e)=>setSql(e.target.value)} placeholder="-- Enter SQL query..."
+                         className="absolute inset-0 w-full h-full resize-none rounded-none border-0 font-mono text-sm leading-relaxed focus-visible:ring-0 focus-visible:ring-offset-0 p-2 bg-background caret-foreground selection:bg-primary/20"
+                      /> */}
+                     {/* +++ Add Monaco Editor +++ */}
+                     <Editor
+                        // Height should fill the container which has dynamic height
+                        // The container div already handles the height style.
+                        // height="100%" // Let the container manage height
+                        language="sql"
+                        value={sql}
+                        onChange={(value) => setSql(value || '')} // Update state on change
+                        theme="vs-dark" // Or "light", or integrate with app theme later
+                        options={{
+                            minimap: { enabled: false }, // Optional: disable minimap
+                            fontSize: 13,             // Optional: adjust font size
+                            wordWrap: 'on',           // Optional: enable word wrap
+                            scrollBeyondLastLine: false, // Optional: improve scrolling
+                            automaticLayout: true,      // Optional: helps with resizing
+                            padding: { top: 8, bottom: 8 }, // Optional: Add padding
+                        }}
+                        // Provide a loading fallback (optional, default is 'loading...')
+                        loading={<div className="flex items-center justify-center h-full text-muted-foreground"><Loader2 className="h-5 w-5 animate-spin mr-2"/>Loading Editor...</div>}
+                    />
+                 </div>
                  {/* Resize Handle uses default theme border */}
                 <div ref={resizeHandleRef} onMouseDown={startResizing} className="h-1.5 bg-border hover:bg-primary cursor-ns-resize flex-shrink-0 flex items-center justify-center transition-colors">
                     <GripVertical className="h-2.5 w-2.5 text-muted-foreground" />
@@ -871,31 +1369,127 @@ const BigQueryTableViewer: React.FC = () => {
         );
     };
 
+    const renderAiSummaryContent = () => {
+        // Check initial conditions
+        if (!jobResults || jobResults.rows.length === 0) {
+            return (
+                <div className="flex items-center justify-center h-full text-muted-foreground p-6">
+                    <div className="text-center">
+                        <Sparkles className="h-12 w-12 mx-auto mb-4 opacity-20"/>
+                        <h3 className="text-lg font-medium mb-2 text-foreground">No Results for Summary</h3>
+                        <p className="text-sm">Run a query that returns results to generate an AI summary.</p>
+                    </div>
+                </div>
+            );
+        }
 
-    // --- MODIFIED: renderOutputPane (Structure remains similar, content functions change) ---
+        if (loadingAiSummary) {
+            return (
+                <div className="flex justify-center items-center h-full p-4">
+                    <div className="text-center">
+                        <Loader2 className="h-8 w-8 animate-spin mx-auto mb-3 text-primary"/>
+                        <p className="text-sm text-muted-foreground">Generating AI summary...</p>
+                    </div>
+                </div>
+            );
+        }
+
+        if (aiSummaryError) {
+             return (
+                <div className="p-4">
+                    <Alert variant="destructive">
+                        <Terminal className="h-4 w-4"/>
+                        <AlertTitle>AI Summary Error</AlertTitle>
+                        <AlertDescription>
+                            <p>{aiSummaryError}</p>
+                            <Button
+                                variant="secondary" size="sm"
+                                onClick={fetchAiSummary} // Allow retry
+                                className="mt-3 text-xs h-7"
+                                disabled={loadingAiSummary} // Disable while loading
+                            >
+                                <RefreshCw className="mr-1.5 h-3 w-3"/> Retry
+                            </Button>
+                        </AlertDescription>
+                    </Alert>
+                 </div>
+             );
+        }
+
+        if (!aiSummary) {
+            // This state might occur briefly before loading starts or if the fetch failed silently
+            return (
+                 <div className="flex items-center justify-center h-full text-muted-foreground p-6">
+                     <div className="text-center">
+                         <Sparkles className="h-12 w-12 mx-auto mb-4 opacity-20"/>
+                         <h3 className="text-lg font-medium mb-2 text-foreground">Generate AI Summary</h3>
+                         <p className="text-sm mb-4">Click the button to get an AI-powered summary of the results.</p>
+                         <Button onClick={fetchAiSummary} size="sm" disabled={loadingAiSummary}>
+                              <Sparkles className="mr-2 h-4 w-4" /> Generate Summary
+                         </Button>
+                     </div>
+                 </div>
+            );
+        }
+
+        // Display the summary
+        return (
+            <div className="h-full flex flex-col">
+                {/* Optional: Add Filter controls here too if desired */}
+                {/* {availableFilters.length > 0 && ( <FilterControls ... /> )} */}
+                <div className="flex-grow flex flex-col p-3 overflow-hidden">
+                     <div className="flex justify-between items-center mb-2 flex-shrink-0">
+                         <h3 className="text-base font-semibold flex items-center gap-2">
+                             <Sparkles className="h-4 w-4 text-primary"/> AI Generated Summary
+                         </h3>
+                         <Button
+                             variant="outline" size="xs"
+                             onClick={fetchAiSummary}
+                             className="h-7"
+                             disabled={loadingAiSummary}
+                         >
+                            <RefreshCw className="mr-1 h-3 w-3"/> Regenerate
+                         </Button>
+                     </div>
+                     {/* Display the summary text - using prose for better readability */}
+                     <ScrollArea className="flex-grow mt-1">
+                         <div className="prose prose-sm dark:prose-invert max-w-none p-3 border rounded-md bg-background text-foreground whitespace-pre-wrap">
+                            {aiSummary}
+                         </div>
+                     </ScrollArea>
+                 </div>
+            </div>
+        );
+    };
+
     const renderOutputPane = () => {
-        // Determine if visualize tab should be enabled based on original results/suggestions
         const canVisualize = suggestedCharts.length > 0 || activeVisualization !== null;
-        // Also check if there are *any* results (original or filtered) to show the tabs meaningfully
-        const hasResultsToShow = jobResults?.rows || filteredData.length > 0;
+        const hasResultsToShow = jobResults?.rows && jobResults.rows.length > 0; // Need actual rows for Summary/Viz
+        const hasJobCompletedSuccessfully = jobStatus?.state === 'DONE' && !jobStatus.error_result;
 
         return (
             <div className="flex-grow overflow-hidden flex flex-col bg-background">
-                {/* Status Bar (keep as is) */}
-                {jobId && !isRunningJob && !jobError && (
+                {/* Status Bar (unchanged) */}
+                {jobId && !isRunningJob && !jobError && jobStatus?.state === 'DONE' && ( // Show only on successful completion
                      <div className="px-3 py-1 text-xs border-b text-muted-foreground flex items-center gap-2">
+                         <span className="text-green-600 dark:text-green-400">✓</span>
                          <span>Job {jobId?.substring(0, 8)}... completed successfully.</span>
                          {jobStatus?.total_bytes_processed !== undefined && (
                              <Badge variant="secondary" className="text-[10px] px-1 h-4">~{formatBytes(jobStatus.total_bytes_processed)} processed</Badge>
+                         )}
+                         {jobStatus?.end_time && jobStatus.start_time && (
+                            <Badge variant="secondary" className="text-[10px] px-1 h-4">
+                                {((new Date(jobStatus.end_time).getTime() - new Date(jobStatus.start_time).getTime()) / 1000).toFixed(2)}s
+                            </Badge>
                          )}
                      </div>
                  )}
                  {jobId && jobError && (
                      <div className="px-3 py-1 text-xs border-b text-destructive-foreground bg-destructive flex items-center gap-2">
+                         <span className="text-white">✗</span> {/* Use X or similar */}
                          <span>Job {jobId?.substring(0, 8)}... failed.</span>
                      </div>
                  )}
-
 
                 <Tabs value={currentOutputTab} onValueChange={setCurrentOutputTab} className="flex-grow flex flex-col overflow-hidden">
                     <TabsList className="mx-3 mt-2 mb-1 h-8 justify-start bg-muted p-0.5 rounded-md flex-shrink-0">
@@ -904,28 +1498,41 @@ const BigQueryTableViewer: React.FC = () => {
                         <TabsTrigger
                              value="visualize"
                              className="text-xs h-7 px-3 data-[state=active]:bg-background data-[state=active]:shadow-sm rounded-sm"
-                             // Disable if: No AI suggestions AND no active viz OR no original results OR filters applied resulted in no data
-                             disabled={(!canVisualize) || !jobResults || !jobResults.rows || jobResults.rows.length === 0 || filteredData.length === 0}
+                             disabled={!hasResultsToShow || !canVisualize || filteredData.length === 0} // Disable if no results or no suggestions/active viz or filtered data is empty
                          >
                            <BarChart4 className="mr-1.5 h-3.5 w-3.5"/>Visualize
                         </TabsTrigger>
+                         {/* +++ Add AI Summary Tab Trigger +++ */}
+                         <TabsTrigger
+                             value="ai-summary"
+                             className="text-xs h-7 px-3 data-[state=active]:bg-background data-[state=active]:shadow-sm rounded-sm"
+                             disabled={!hasResultsToShow || !hasJobCompletedSuccessfully || loadingAiSummary} // Disable if no results, job not done, or loading
+                         >
+                           <Sparkles className="mr-1.5 h-3.5 w-3.5"/>AI Summary
+                           {loadingAiSummary && <Loader2 className="ml-1.5 h-3 w-3 animate-spin" />}
+                        </TabsTrigger>
+                        {/* +++ END AI Summary Tab Trigger +++ */}
                      </TabsList>
                     {/* Content areas */}
                      <TabsContent value="data" className="flex-grow mt-0 overflow-hidden">
                         {renderTablePreview()}
                      </TabsContent>
                     <TabsContent value="results" className="flex-grow mt-0 overflow-hidden">
-                         {/* Renders loading/error states OR FilterControls + Table */}
                          {renderResultsContent()}
                     </TabsContent>
                     <TabsContent value="visualize" className="flex-grow mt-0 overflow-hidden bg-card">
-                         {/* Renders FilterControls + Chart OR placeholders */}
                         {renderChartVisualization()}
                     </TabsContent>
+                    {/* +++ Add AI Summary Tab Content +++ */}
+                    <TabsContent value="ai-summary" className="flex-grow mt-0 overflow-hidden">
+                        {renderAiSummaryContent()}
+                    </TabsContent>
+                    {/* +++ END AI Summary Tab Content +++ */}
                 </Tabs>
             </div>
         );
     };
+    // +++ END Modified renderOutputPane +++
 
 
     // --- MODIFIED: renderResultsContent (Includes FilterControls) ---
@@ -1001,7 +1608,6 @@ const BigQueryTableViewer: React.FC = () => {
         };
         // --- End of renderResultsTable definition ---
 
-
         // --- MAIN RETURN for renderResultsContent ---
         return (
             <div className="h-full flex flex-col"> {/* Container for Filters + Content */}
@@ -1037,7 +1643,26 @@ const BigQueryTableViewer: React.FC = () => {
                          {/* Action Buttons */}
                          <div className="flex gap-1">
                             <Button variant="outline" size="xs" onClick={submitSqlJob} className="h-7"><RefreshCw className="mr-1 h-3 w-3"/>Run Again</Button>
-                            <Button variant="outline" size="xs" onClick={() => console.warn("Export filtered data not implemented yet")} className="h-7"><Download className="mr-1 h-3 w-3"/>Export</Button>
+                            {/* Replace previous Download button or add new one */}
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                     <Button
+                                         variant="outline"
+                                         size="xs"
+                                         onClick={handleExcelDownload}
+                                         disabled={!jobId || isDownloadingExcel || isRunningJob || !!jobError} // Disable if no job, downloading, running, or error
+                                         className="h-7"
+                                     >
+                                         {isDownloadingExcel ? (
+                                             <Loader2 className="mr-1 h-3 w-3 animate-spin"/>
+                                         ) : (
+                                             <FileSpreadsheet className="mr-1 h-3 w-3"/> // Excel icon
+                                         )}
+                                         Report
+                                     </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>Download Results & Source Data (Excel)</TooltipContent>
+                             </Tooltip>
                          </div>
                     </div>
 
