@@ -10,10 +10,12 @@ import { ETLFile, ProcessingStage } from './types';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import axios from 'axios'; // Use axios for easier error handling potentially
 import { useToast } from "@/hooks/use-toast"
+import { CreateDataset } from './components/CreateDataset';
 // +++ MODIFICATION START +++
 import { Loader2 } from 'lucide-react'; // For loading state
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"; // For error state
 import { Terminal } from 'lucide-react'; // Icon for error alert
+import { Label } from '@/components/ui/label';
 // +++ MODIFICATION END +++
 interface DatasetListItem {
   datasetId: string;
@@ -35,41 +37,42 @@ export function UploadView() {
   const [selectedDatasetId, setSelectedDatasetId] = useState<string>(""); // Start empty or null
   const [loadingDatasets, setLoadingDatasets] = useState<boolean>(true);
   const [datasetError, setDatasetError] = useState<string | null>(null);
-
-  // Fetch datasets on component mount
-  useEffect(() => {
-    const fetchDatasets = async () => {
-      setLoadingDatasets(true);
-      setDatasetError(null);
-      try {
-        const resp = await axiosInstance.get<DatasetListApiResponse>('/api/bigquery/datasets');
-        // sort by ID
-        const datasets = resp.data.datasets.sort((a, b) =>
-          a.datasetId.localeCompare(b.datasetId)
-        );
-        setAvailableDatasets(datasets);
-    
-        if (datasets.length > 0 && !selectedDatasetId) {
-          setSelectedDatasetId(datasets[0].datasetId);
-        } else if (datasets.length === 0) {
-          setSelectedDatasetId("");
-          setDatasetError("No accessible datasets found.");
-        }
-      } catch (err: any) {
-        console.error("Error fetching datasets:", error);
-        const message = axios.isAxiosError(error) ? error.response?.data?.detail || error.message : error.message;
-        setDatasetError(`Failed to load datasets: ${message}`);
-        setAvailableDatasets([]); // Clear datasets on error
-        setSelectedDatasetId(""); // Clear selection on error
-      } finally {
-        setLoadingDatasets(false);
+  const fetchDatasets = async () => {
+    setLoadingDatasets(true);
+    setDatasetError(null);
+    try {
+      const resp = await axiosInstance.get<DatasetListApiResponse>('/api/bigquery/datasets');
+      // sort by ID
+      const datasets = resp.data.datasets.sort((a, b) =>
+        a.datasetId.localeCompare(b.datasetId)
+      );
+      setAvailableDatasets(datasets);
+  
+      if (datasets.length > 0 && !selectedDatasetId) {
+        setSelectedDatasetId(datasets[0].datasetId);
+      } else if (datasets.length === 0) {
+        setSelectedDatasetId("");
+        setDatasetError("No accessible datasets found.");
       }
-    };
-    
-
+    } catch (err: any) {
+      console.error("Error fetching datasets:", error);
+      const message = axios.isAxiosError(error) ? error.response?.data?.detail || error.message : error.message;
+      setDatasetError(`Failed to load datasets: ${message}`);
+      setAvailableDatasets([]); // Clear datasets on error
+      setSelectedDatasetId(""); // Clear selection on error
+    } finally {
+      setLoadingDatasets(false);
+    }
+  };
+  useEffect(() => {
     fetchDatasets();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Empty dependency array ensures this runs only once on mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  
+  // Now this works too:
+  const handleDatasetCreated = () => {
+    fetchDatasets(); // ✅ This will work now
+  }; // Empty dependency array ensures this runs only once on mount
   // +++ MODIFICATION END +++
 
   const handleFilesAdded = useCallback((newFiles: File[]) => {
@@ -234,77 +237,114 @@ export function UploadView() {
   const filesWithError = files.filter(f => f.status === 'error').length;
 
   return (
-    // Use theme background and text colors
     <div className="container mx-auto px-4 py-8 max-w-5xl space-y-8">
       <UploadHeader />
- {/* --- MODIFIED Dataset Selector Section --- */}
- <div className="p-4 border rounded-lg bg-card shadow-sm">
-          <label htmlFor="dataset-select" className="block text-sm font-medium text-muted-foreground mb-2">
-              Team<span className="text-destructive">*</span>
-          </label>
+
+      {/* --- CORRECTED Dataset Selector Section --- */}
+
+      <div className="p-4 border rounded-lg bg-card shadow-sm space-y-3">
+          <Label htmlFor="dataset-select" className="block text-sm font-medium text-muted-foreground">
+              Target Dataset <span className="text-destructive">*</span>
+          </Label>
+
+          {/* Loading State */}
           {loadingDatasets && (
               <div className="flex items-center text-sm text-muted-foreground">
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading datasets...
               </div>
           )}
+
+          {/* Error State */}
+          {!loadingDatasets && datasetError && !availableDatasets.length && (
+              <Alert variant="destructive">
+                  <Terminal className="h-4 w-4" />
+                  <AlertTitle>Error Loading Datasets</AlertTitle>
+                  <AlertDescription>
+                      {datasetError}
+                      {/* Add Create Dataset button within the error state as a fallback */}
+                      <div className="mt-3">
+                          <CreateDataset onDatasetCreated={handleDatasetCreated} />
+                      </div>
+                  </AlertDescription>
+              </Alert>
+          )}
+
+          {/* Dataset Selector and Create Button (Displayed when not loading and no critical error preventing listing) */}
           {!loadingDatasets && !datasetError && (
-  <Select
-    value={selectedDatasetId}
-    onValueChange={setSelectedDatasetId}
-    disabled={
-      isUploading ||
-      processingStage === 'uploading' ||
-      availableDatasets.length === 0
-    }
-  >
-    <SelectTrigger id="dataset-select" className="w-full md:w-[300px]">
-      <SelectValue placeholder="Select a dataset..." />
-    </SelectTrigger>
-    <SelectContent>
-      {availableDatasets.length === 0 ? (
-        <div className="px-4 py-2 text-sm text-muted-foreground">
-          No datasets found
-        </div>
-      ) : (
-        availableDatasets.map(ds => (
-          <SelectItem key={ds.datasetId} value={ds.datasetId}>
-            {ds.datasetId} (Region: {ds.location})
-          </SelectItem>
-        ))
-      )}
-    </SelectContent>
-  </Select>
-)}
-          <p className="text-xs text-muted-foreground mt-2">
-              Files added below will be processed into the selected BigQuery dataset.
+              <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                  {/* Select Dropdown */}
+                  <Select
+                      value={selectedDatasetId}
+                      onValueChange={setSelectedDatasetId}
+                      disabled={
+                          isUploading || // Disable during active upload
+                          processingStage === 'uploading' // Disable during processing stage
+                          // Allow selection even if availableDatasets is empty initially, user might create one
+                      }
+                  >
+                      <SelectTrigger id="dataset-select" className="w-full sm:flex-grow sm:w-auto">
+                          {/* Use flex-grow on trigger for better responsiveness */}
+                          <SelectValue placeholder="Select a dataset or create new..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                          {availableDatasets.length === 0 ? (
+                              <div className="px-4 py-2 text-sm text-muted-foreground italic">
+                                  No datasets found. Create one?
+                              </div>
+                          ) : (
+                              availableDatasets.map(ds => (
+                                  <SelectItem key={ds.datasetId} value={ds.datasetId}>
+                                      {ds.datasetId} ({ds.location})
+                                  </SelectItem>
+                              ))
+                          )}
+                          {/* DO NOT PUT CreateDataset component inside SelectContent */}
+                      </SelectContent>
+                  </Select>
+
+                  {/* Create Dataset Button - Placed *next to* the Select dropdown */}
+                  <CreateDataset onDatasetCreated={handleDatasetCreated} />
+              </div>
+          )}
+
+           {/* Helper text */}
+          <p className="text-xs text-muted-foreground pt-1">
+               Select the BigQuery dataset where your uploaded files will be processed, or create a new one.
           </p>
       </div>
+      {/* --- END Dataset Selector Section --- */}
+
+
+      {/* --- Upload Area and File List --- */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <div className="md:col-span-2 space-y-6">
+          {/* Upload Area */}
           <UploadArea
             onFilesAdded={handleFilesAdded}
-            disabled={processingStage === 'uploading' || processingStage === 'processing'}
+            // Disable adding files if no dataset is selected, or during loading/error/upload
+            disabled={!selectedDatasetId || loadingDatasets || !!datasetError || isUploading || processingStage === 'uploading'}
           />
 
+          {/* File List */}
           {files.length > 0 && (
              <FileList
                 files={files}
                 onRemove={removeFile}
                 onUpload={handleUpload}
                 onClearCompleted={clearCompleted}
-                isProcessing={processingStage === 'uploading' || processingStage === 'processing'}
-                isLoading={isUploading} // Pass loading state
+                isProcessing={processingStage === 'uploading' || isUploading} // Simplified processing state check
+                isLoading={isUploading} // Pass loading state specifically for upload button
              />
           )}
         </div>
 
+        {/* Status and History */}
         <div className="space-y-6">
           <ProcessingStatus
             stage={processingStage}
             filesCount={totalFiles}
             errorCount={filesWithError}
           />
-          {/* Keep UploadHistory static for now, or implement dynamic updates */}
           {/* <UploadHistory /> */}
         </div>
       </div>
