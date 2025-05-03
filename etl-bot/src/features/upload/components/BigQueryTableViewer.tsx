@@ -126,6 +126,7 @@ const BigQueryTableViewer: React.FC = () => {
     const [jobStatus, setJobStatus] = useState<JobStatusResponse | null>(null);
     const [isRunningJob, setIsRunningJob] = useState<boolean>(false);
     const [jobError, setJobError] = useState<string>("");
+    const [nlPrompt, setNlPrompt] = useState<string>(""); // NL Prompt state
     const [jobResults, setJobResults] = useState<JobResultsResponse | null>(null); // Keep this for original data
     const [loadingResults, setLoadingResults] = useState<boolean>(false);
     const [currentResultsPageToken, setCurrentResultsPageToken] = useState<string | null>(null);
@@ -133,7 +134,6 @@ const BigQueryTableViewer: React.FC = () => {
     const [schemaData, setSchemaData] = useState<SchemaResponse | null>(null);
     const [loadingSchema, setLoadingSchema] = useState<boolean>(false);
     const [schemaError, setSchemaError] = useState<string>("");
-    const [nlPrompt, setNlPrompt] = useState<string>("");
     const [generatingSql, setGeneratingSql] = useState<boolean>(false);
     const [nlError, setNlError] = useState<string>("");
     const [queryHistory, setQueryHistory] = useState<QueryHistoryItem[]>([]);
@@ -547,19 +547,38 @@ const BigQueryTableViewer: React.FC = () => {
         }
      // Dependencies: Correctly includes fullDatasetId
     }, [fullDatasetId, getErrorMessage]);
+
+
     
+    // --- MODIFIED handleGenerateSql callback ---
     const handleGenerateSql = useCallback(async () => {
-        const currentPrompt = nlPrompt.trim(); // Capture prompt before clearing
-         if(!currentPrompt)
-            {
-                setNlError("Please enter a description.");
-                return;
-            } 
-            setGeneratingSql(true); setNlError(""); setJobError(""); setJobResults(null); setJobStatus(null); setJobId(null); stopPolling(); setActiveFilters({}); setActiveVisualization(null); setSuggestedCharts([]);
-            setAiSummary(null);
-        setAiSummaryError(null);
-        setLoadingAiSummary(false);
-        setLastUserPrompt(currentPrompt);  try { const r=await axiosInstance.post<NLQueryResponse>('/api/bigquery/nl2sql',{prompt:nlPrompt,dataset_id:fullDatasetId}); if(r.data.error){setNlError(r.data.error);} else if(r.data.generated_sql){setSql(r.data.generated_sql); setNlPrompt("");} else {setNlError("AI did not return valid SQL.");} } catch(e){ console.error("Error generating SQL:",e); setNlError(`Generate SQL failed: ${getErrorMessage(e)}`); } finally { setGeneratingSql(false); } }, [nlPrompt, fullDatasetId, stopPolling, getErrorMessage]);
+        const currentPrompt = nlPrompt.trim();
+         if (!currentPrompt) {
+             setNlError("Please enter a query description.");
+             return;
+         }
+         // --- START specific modification ---
+         // Ensure a dataset is selected (API needs it). Table selection is handled by disabling UI.
+         if (!selectedDatasetId) {
+             setNlError("Please select a dataset first.");
+             return;
+         }
+         // --- END specific modification ---
+
+         setGeneratingSql(true); setNlError(""); setJobError(""); /* ... reset other states ... */
+         setLastUserPrompt(currentPrompt);
+         try {
+             // ... (API call to /api/bigquery/nl2sql) ...
+             const r=await axiosInstance.post<NLQueryResponse>('/api/bigquery/nl2sql',{prompt:nlPrompt,dataset_id:fullDatasetId}); if(r.data.error){setNlError(r.data.error);} else if(r.data.generated_sql){setSql(r.data.generated_sql); setNlPrompt("");} else {setNlError("AI did not return valid SQL.");}
+         } catch(e){
+             // ... (Error handling) ...
+              setNlError(`Generate SQL failed: ${getErrorMessage(e)}`);
+         } finally {
+             setGeneratingSql(false);
+         }
+     }, [nlPrompt, fullDatasetId, selectedDatasetId, stopPolling, getErrorMessage]); // Added selectedDatasetId to dependencies
+
+
 
 // Add this useEffect for initial dataset loading
 useEffect(() => {
@@ -1298,76 +1317,63 @@ useEffect(() => {
             </div>
         );
     };
-    const renderEditorPane = () => { /* ... NO CHANGES ... */
+
+
+    // --- MODIFIED renderEditorPane function ---
+    const renderEditorPane = () => {
         return (
             <div ref={editorPaneRef} className="flex flex-col border-b overflow-hidden bg-muted/30" style={{ height: `${editorPaneHeight}px` }}>
+                {/* ... (Top bar: SQL Editor title, AI Assist toggle, Run Query button - remain unchanged) ... */}
                 <div className="p-1.5 pl-3 bg-background border-b flex justify-between items-center h-9 flex-shrink-0">
-                     <div className="flex items-center gap-2">
-                        <span className="font-medium text-sm flex items-center gap-1.5 text-foreground">
-                           <Code className="h-4 w-4 text-primary"/> SQL Editor
-                        </span>
-                        <TooltipProvider><Tooltip><TooltipTrigger asChild>
-                             <Button variant={showNlSection ? "secondary" : "ghost"} size="xs" className="h-6 px-2" onClick={() => setShowNlSection(!showNlSection)}>
-                                <BrainCircuit className="h-3.5 w-3.5 mr-1"/> AI Assist
-                            </Button>
-                        </TooltipTrigger><TooltipContent>Toggle AI Query Builder</TooltipContent></Tooltip></TooltipProvider>
-                    </div>
-                    {/* Standard primary button */}
-                    <Button onClick={submitSqlJob} disabled={isRunningJob || !sql.trim()} size="sm" className="h-7">
-                        {isRunningJob ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin"/> : null} Run Query
-                    </Button>
+                     <div className="flex items-center gap-2"> <span className="font-medium text-sm flex items-center gap-1.5 text-foreground"><Code className="h-4 w-4 text-primary"/> SQL Editor</span> <TooltipProvider><Tooltip><TooltipTrigger asChild><Button variant={showNlSection ? "secondary" : "ghost"} size="xs" className="h-6 px-2" onClick={() => setShowNlSection(!showNlSection)}><BrainCircuit className="h-3.5 w-3.5 mr-1"/> AI Assist</Button></TooltipTrigger><TooltipContent>Toggle AI Query Builder</TooltipContent></Tooltip></TooltipProvider> </div>
+                     <Button onClick={submitSqlJob} disabled={isRunningJob || !sql.trim()} size="sm" className="h-7">{isRunningJob ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin"/> : null} Run Query</Button>
                 </div>
+
+                {/* AI Assist Section (remains unchanged from previous step) */}
                 {showNlSection && (
                     <div className="p-2 bg-background border-b flex-shrink-0">
                          <div className="flex gap-2 items-center">
-                            <Input placeholder="Describe query..." value={nlPrompt} onChange={(e)=>setNlPrompt(e.target.value)} className="flex-grow text-xs h-7" disabled={generatingSql}/>
-                            <Button onClick={handleGenerateSql} disabled={!nlPrompt.trim()||generatingSql} size="sm" variant="secondary" className="text-xs h-7">
-                                {generatingSql?<Loader2 className="mr-1.5 h-3 w-3 animate-spin"/>:<BrainCircuit className="mr-1.5 h-3 w-3"/>} Generate
-                            </Button>
+                            <Input placeholder={selectedTableId ? "Describe query..." : "Select table for AI..."} value={nlPrompt} onChange={(e)=>setNlPrompt(e.target.value)} className="flex-grow text-xs h-7" disabled={generatingSql || !selectedTableId} title={!selectedTableId ? "Select table first." : ""} />
+                            <Button onClick={handleGenerateSql} disabled={!nlPrompt.trim() || generatingSql || !selectedTableId} size="sm" variant="secondary" className="text-xs h-7">{generatingSql?<Loader2 className="mr-1.5 h-3 w-3 animate-spin"/>:<BrainCircuit className="mr-1.5 h-3 w-3"/>} Generate</Button>
                          </div>
                          {nlError && <p className="text-xs text-destructive mt-1 px-1">{nlError}</p>}
                     </div>
                 )}
-                 <div className="flex-grow relative">
-                     {/* Textarea uses default theme colors */}
-                     <Textarea value={sql} onChange={(e)=>setSql(e.target.value)} placeholder="-- Enter SQL query..."
-                         className="absolute inset-0 w-full h-full resize-none rounded-none border-0 font-mono text-sm leading-relaxed focus-visible:ring-0 focus-visible:ring-offset-0 p-2 bg-background caret-foreground selection:bg-primary/20"
-                      />
-                </div>
-                                 {/* --- MODIFIED: Editor Area --- */}
-                                 <div className="flex-grow relative bg-background"> {/* Added bg-background for theme consistency */}
-                     {/* --- Replace Textarea with Monaco Editor --- */}
-                     {/* <Textarea value={sql} onChange={(e)=>setSql(e.target.value)} placeholder="-- Enter SQL query..."
-                         className="absolute inset-0 w-full h-full resize-none rounded-none border-0 font-mono text-sm leading-relaxed focus-visible:ring-0 focus-visible:ring-offset-0 p-2 bg-background caret-foreground selection:bg-primary/20"
-                      /> */}
-                     {/* +++ Add Monaco Editor +++ */}
+
+                 {/* Monaco Editor Area */}
+                 <div className="flex-grow relative bg-background">
+                     {/* --- START specific modification --- */}
                      <Editor
-                        // Height should fill the container which has dynamic height
-                        // The container div already handles the height style.
-                        // height="100%" // Let the container manage height
                         language="sql"
                         value={sql}
-                        onChange={(value) => setSql(value || '')} // Update state on change
-                        theme="vs-dark" // Or "light", or integrate with app theme later
+                        onChange={(value) => setSql(value || '')}
+                        theme="vs-dark" // Consider theme options
                         options={{
-                            minimap: { enabled: false }, // Optional: disable minimap
-                            fontSize: 13,             // Optional: adjust font size
-                            wordWrap: 'on',           // Optional: enable word wrap
-                            scrollBeyondLastLine: false, // Optional: improve scrolling
-                            automaticLayout: true,      // Optional: helps with resizing
-                            padding: { top: 8, bottom: 8 }, // Optional: Add padding
+                            minimap: { enabled: false },
+                            fontSize: 13,
+                            wordWrap: 'on',
+                            scrollBeyondLastLine: false,
+                            automaticLayout: true,
+                            padding: { top: 8, bottom: 8 },
+                            readOnly: !selectedTableId // <-- ADDED: Make read-only if no table selected
                         }}
-                        // Provide a loading fallback (optional, default is 'loading...')
+                        // Add a visual cue when disabled (optional, but good UX)
+                        // You might need to adjust wrapper styles if editor doesn't dim itself
+                        // Example: className={!selectedTableId ? 'opacity-60 cursor-not-allowed' : ''}
                         loading={<div className="flex items-center justify-center h-full text-muted-foreground"><Loader2 className="h-5 w-5 animate-spin mr-2"/>Loading Editor...</div>}
                     />
+                    {/* --- END specific modification --- */}
                  </div>
-                 {/* Resize Handle uses default theme border */}
+
+                 {/* Resize Handle (remains unchanged) */}
                 <div ref={resizeHandleRef} onMouseDown={startResizing} className="h-1.5 bg-border hover:bg-primary cursor-ns-resize flex-shrink-0 flex items-center justify-center transition-colors">
                     <GripVertical className="h-2.5 w-2.5 text-muted-foreground" />
                  </div>
             </div>
         );
     };
+
+
 
     const renderAiSummaryContent = () => {
         // Check initial conditions
