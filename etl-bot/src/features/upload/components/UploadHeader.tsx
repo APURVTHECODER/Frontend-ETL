@@ -9,7 +9,7 @@ export function UploadHeader() {
           <div className="bg-primary/10 p-2 rounded-md">
             <FileSpreadsheet className="h-6 w-6 text-primary" />
           </div>
-          <h1 className="text-2xl font-semibold">Excel → Database ETL</h1>
+          <h1 className="text-2xl font-semibold">TransformEXL Ai</h1>
         </div>
         <ThemeToggle />
       </div>
@@ -23,7 +23,7 @@ export function UploadHeader() {
             <h2 className="font-medium">Transform your Excel data into structured database records</h2>
             <p className="text-muted-foreground mt-1">
               Upload your Excel files (.xlsx, .xls) to automatically extract, transform, and load 
-              the data into your database. The system will validate your data and provide feedback on any issues.
+              the data into your database. The system will validate your data and provide feedback on any queries.
             </p>
           </div>
         </div>

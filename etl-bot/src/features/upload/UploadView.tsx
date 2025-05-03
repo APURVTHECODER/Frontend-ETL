@@ -273,7 +273,7 @@ export function UploadView() {
 
       <div className="p-4 border rounded-lg bg-card shadow-sm space-y-3">
           <Label htmlFor="dataset-select" className="block text-sm font-medium text-muted-foreground">
-              Target Dataset <span className="text-destructive">*</span>
+          Workspace <span className="text-destructive">*</span>
           </Label>
           {isAdmin && (
           <DatasetActions
@@ -289,7 +289,7 @@ export function UploadView() {
           {/* Loading State */}
           {loadingDatasets && (
               <div className="flex items-center text-sm text-muted-foreground">
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading datasets...
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading Workspace...
               </div>
           )}
 
@@ -297,7 +297,7 @@ export function UploadView() {
           {!loadingDatasets && datasetError && !availableDatasets.length && (
               <Alert variant="destructive">
                   <Terminal className="h-4 w-4" />
-                  <AlertTitle>Error Loading Datasets</AlertTitle>
+                  <AlertTitle>Error Loading Workspace</AlertTitle>
                   <AlertDescription>
                       {datasetError}
                   </AlertDescription>
@@ -319,7 +319,7 @@ export function UploadView() {
                   >
                       <SelectTrigger id="dataset-select" className="w-full sm:flex-grow sm:w-auto">
                           {/* Use flex-grow on trigger for better responsiveness */}
-                          <SelectValue placeholder="Select a dataset or create new..." />
+                          <SelectValue placeholder="Select a Workspace or create new..." />
                       </SelectTrigger>
                       <SelectContent>
                           {availableDatasets.length === 0 ? (
@@ -343,7 +343,7 @@ export function UploadView() {
 
            {/* Helper text */}
           <p className="text-xs text-muted-foreground pt-1">
-               Select the BigQuery dataset where your uploaded files will be processed, or create a new one.
+               Select the Workspace where your uploaded files will be processed, or create a new one.
           </p>
       </div>
       {/* --- END Dataset Selector Section --- */}

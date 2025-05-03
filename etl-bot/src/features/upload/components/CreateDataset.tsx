@@ -112,7 +112,7 @@ export function CreateDataset({ onDatasetCreated, defaultLocation = "US" }: Crea
       <DialogTrigger asChild>
         <Button variant="outline" size="sm" className="flex items-center gap-2">
           <PlusCircle className="h-4 w-4" />
-          Create New Dataset
+          Create Workspace
         </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-[500px]">

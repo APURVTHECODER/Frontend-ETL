@@ -65,7 +65,7 @@ export function DatasetSelector({
         className="w-full sm:flex-grow sm:w-auto"
         aria-label="Select target dataset"
       >
-        <SelectValue placeholder={availableDatasets.length === 0 ? "No datasets available" : "Select a dataset..."} />
+        <SelectValue placeholder={availableDatasets.length === 0 ? "No workspace available" : "Select a workspace..."} />
       </SelectTrigger>
       <SelectContent>
         {availableDatasets.length === 0 ? (

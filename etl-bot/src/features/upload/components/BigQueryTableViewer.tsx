@@ -307,7 +307,7 @@ const BigQueryTableViewer: React.FC = () => {
     const submitSqlJob = useCallback(async () => {
         // Initial checks for dataset selection remain the same
         if (!fullDatasetId) {
-            toast({ title: "Dataset Required", description: "Please select a dataset first.", variant: "destructive" });
+            toast({ title: "Dataset Required", description: "Please select a workspace first.", variant: "destructive" });
             return;
         }
          if (!selectedDatasetId) {
@@ -560,7 +560,7 @@ const BigQueryTableViewer: React.FC = () => {
          // --- START specific modification ---
          // Ensure a dataset is selected (API needs it). Table selection is handled by disabling UI.
          if (!selectedDatasetId) {
-             setNlError("Please select a dataset first.");
+             setNlError("Please select a workspace first.");
              return;
          }
          // --- END specific modification ---
@@ -1010,7 +1010,7 @@ useEffect(() => {
              <div className="p-3 flex flex-col h-full text-sm">
                             <div className="mb-3 border-b pb-3 flex-shrink-0">
                 <label htmlFor="dataset-select" className="block text-xs font-medium text-muted-foreground mb-1.5">
-                    Select Team (Dataset)
+                    Select Workspace
                 </label>
                 {loadingDatasets && (
                     <div className="flex items-center text-xs text-muted-foreground h-8">
@@ -1031,7 +1031,7 @@ useEffect(() => {
                         disabled={loadingTables || loadingSchema || isRunningJob || availableDatasets.length === 0}
                     >
                         <SelectTrigger id="dataset-select" className="w-full h-8 text-xs">
-                            <SelectValue placeholder="Select a dataset..." />
+                            <SelectValue placeholder="Select a workspace..." />
                         </SelectTrigger>
                         <SelectContent>
                             {availableDatasets.length === 0 && !loadingDatasets ? (
@@ -1051,10 +1051,10 @@ useEffect(() => {
             </div>
                 <h2 className="font-semibold text-base mb-2 flex items-center text-foreground flex-shrink-0">
                     <Database className="mr-2 h-4 w-4 text-primary" />
-                    Dataset Explorer
+                    Workspace Explorer
                 </h2>
                 <p className="text-xs text-muted-foreground mb-3 truncate flex-shrink-0" title={fullDatasetId}>
-                    {fullDatasetId}
+                    {selectedDatasetId.toLocaleUpperCase()}
                 </p>
                 <Tabs value={currentSidebarTab} onValueChange={setCurrentSidebarTab} className="flex-grow flex flex-col overflow-hidden">
                     <TabsList className="grid grid-cols-4 mb-3 h-8 bg-muted flex-shrink-0">
@@ -1096,7 +1096,7 @@ useEffect(() => {
         );
     };
     const renderTablesList = () => { /* ... NO CHANGES ... */
-        if (!selectedDatasetId) return (<div className="text-center py-8 text-muted-foreground text-sm">Select a dataset first.</div>);
+        if (!selectedDatasetId) return (<div className="text-center py-8 text-muted-foreground text-sm">Select a workspace first.</div>);
         if(loadingTables){return(<div className="flex justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-primary"/></div>);}
         if(listTablesError){return(<Alert variant="destructive" className="mt-2 text-xs"><Terminal className="h-4 w-4"/><AlertTitle>Error</AlertTitle><AlertDescription>{listTablesError}</AlertDescription><Button onClick={fetchTables} variant="link" size="sm" className="mt-2 h-auto p-0 text-xs">Try Again</Button></Alert>);}
         const displayTables = filteredTables.filter(t => t.tableId.toLowerCase().includes(tableSearchQuery.toLowerCase()));
@@ -1238,7 +1238,7 @@ useEffect(() => {
 
 
     const renderSchemaViewer = () => { /* ... NO CHANGES ... */
-        if (!selectedDatasetId) return (<div className="text-center py-8 text-muted-foreground text-sm">Select a dataset first.</div>);
+        if (!selectedDatasetId) return (<div className="text-center py-8 text-muted-foreground text-sm">Select a workspace first.</div>);
         const displayTables = schemaData?.tables.filter(t => t.table_id.toLowerCase().includes(schemaSearchQuery.toLowerCase())) ?? [];
         return(
             <div className="h-full pb-1 flex flex-col text-sm">
@@ -1261,7 +1261,7 @@ useEffect(() => {
         );
     };
     const renderTablePreview = () => { /* ... NO CHANGES ... */
-        if (!selectedDatasetId) return (<div className="flex items-center justify-center h-full text-muted-foreground p-6"><div className="text-center"><Database className="h-12 w-12 mx-auto mb-4 opacity-20"/><h3 className="text-lg font-medium mb-2">No Dataset Selected</h3><p className="text-sm">Select a dataset from the sidebar.</p></div></div>);
+        if (!selectedDatasetId) return (<div className="flex items-center justify-center h-full text-muted-foreground p-6"><div className="text-center"><Database className="h-12 w-12 mx-auto mb-4 opacity-20"/><h3 className="text-lg font-medium mb-2">No Dataset Selected</h3><p className="text-sm">Select a workspace from the sidebar.</p></div></div>);
         // ... rest of the existing function
         if(!selectedTableId)return(<div className="flex items-center justify-center h-full text-muted-foreground"><div className="text-center p-6"><Database className="h-12 w-12 mx-auto mb-4 opacity-20"/><h3 className="text-lg font-medium mb-2">No Table Selected</h3><p className="text-sm">Select a table from the sidebar.</p></div></div>);
         if(loadingPreview)return(<div className="flex justify-center items-center h-full"><div className="text-center"><Loader2 className="h-8 w-8 animate-spin mx-auto mb-3 text-primary"/><p className="text-sm text-muted-foreground">Loading preview...</p></div></div>);
