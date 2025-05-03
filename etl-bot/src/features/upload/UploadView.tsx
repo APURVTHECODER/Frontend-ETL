@@ -10,12 +10,16 @@ import { ETLFile, ProcessingStage } from './types';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import axios from 'axios'; // Use axios for easier error handling potentially
 import { useToast } from "@/hooks/use-toast"
-import { CreateDataset } from './components/CreateDataset';
+import { Skeleton } from "@/components/ui/skeleton"; // +++ Import Skeleton for loading state +++
 // +++ MODIFICATION START +++
 import { Loader2 } from 'lucide-react'; // For loading state
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"; // For error state
 import { Terminal } from 'lucide-react'; // Icon for error alert
 import { Label } from '@/components/ui/label';
+import { useAuth } from '@/contexts/AuthContext';
+import { DatasetSelector } from './components/DatasetSelector';
+import { DatasetActions } from './components/DatasetActions';
+
 // +++ MODIFICATION END +++
 interface DatasetListItem {
   datasetId: string;
@@ -30,13 +34,19 @@ export function UploadView() {
   const [processingStage, setProcessingStage] = useState<ProcessingStage>('idle');
   const [isUploading, setIsUploading] = useState<boolean>(false);
   const { toast } = useToast();
-
+  // +++ Get user role and loading state from Auth context +++
+  const { userProfile, isRoleLoading } = useAuth();
+  const isAdmin = userProfile?.role === 'admin';
+  // +++ End Auth context usage +++
     // +++ MODIFICATION START +++
   // State for fetched datasets, loading, and errors
   const [availableDatasets, setAvailableDatasets] = useState<DatasetListItem[]>([]);
   const [selectedDatasetId, setSelectedDatasetId] = useState<string>(""); // Start empty or null
   const [loadingDatasets, setLoadingDatasets] = useState<boolean>(true);
   const [datasetError, setDatasetError] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState<boolean>(false);
+  // We can derive a general 'isProcessing' state
+  const isProcessing = isUploading || isDeleting; // Add || isCreating if Create had its own loading state here
   const fetchDatasets = async () => {
     setLoadingDatasets(true);
     setDatasetError(null);
@@ -74,7 +84,26 @@ export function UploadView() {
     fetchDatasets(); // ✅ This will work now
   }; // Empty dependency array ensures this runs only once on mount
   // +++ MODIFICATION END +++
-
+  const handleDeleteDatasetConfirmed = async () => {
+    if (!selectedDatasetId || !isAdmin) return; // Guard again
+    setIsDeleting(true);
+    try {
+        await axiosInstance.delete(`/api/bigquery/datasets/${selectedDatasetId}`);
+        toast({ title: "Dataset Deleted", description: `Dataset "${selectedDatasetId}" deleted.`, variant: "default" });
+        setSelectedDatasetId(""); // Reset selection
+        fetchDatasets(true);      // Refresh list
+    } catch (error: any) {
+        console.error(`Error deleting dataset ${selectedDatasetId}:`, error);
+        let message = `Failed to delete dataset "${selectedDatasetId}".`;
+        if (axios.isAxiosError(error)) {
+             if (error.response?.status === 404) { message = `Dataset "${selectedDatasetId}" not found.`; fetchDatasets(true); }
+             else { message = error.response?.data?.detail || error.message || message; }
+        } else if (error instanceof Error) { message = error.message; }
+        toast({ variant: "destructive", title: "Deletion Failed", description: message });
+    } finally {
+        setIsDeleting(false);
+    }
+};
   const handleFilesAdded = useCallback((newFiles: File[]) => {
     if (!selectedDatasetId) {
       toast({
@@ -246,7 +275,17 @@ export function UploadView() {
           <Label htmlFor="dataset-select" className="block text-sm font-medium text-muted-foreground">
               Target Dataset <span className="text-destructive">*</span>
           </Label>
-
+          {isAdmin && (
+          <DatasetActions
+                        isAdmin={isAdmin}
+                        isRoleLoading={isRoleLoading}
+                        isLoadingDatasets={loadingDatasets}
+                        selectedDatasetId={selectedDatasetId || null} // Pass null if nothing is selected
+                        isProcessing={isProcessing} // Pass combined processing state
+                        onDatasetCreated={handleDatasetCreated} // Callback for create button
+                        onDeleteConfirmed={handleDeleteDatasetConfirmed} // Callback for delete button
+                    />
+                  )}
           {/* Loading State */}
           {loadingDatasets && (
               <div className="flex items-center text-sm text-muted-foreground">
@@ -261,10 +300,6 @@ export function UploadView() {
                   <AlertTitle>Error Loading Datasets</AlertTitle>
                   <AlertDescription>
                       {datasetError}
-                      {/* Add Create Dataset button within the error state as a fallback */}
-                      <div className="mt-3">
-                          <CreateDataset onDatasetCreated={handleDatasetCreated} />
-                      </div>
                   </AlertDescription>
               </Alert>
           )}
@@ -298,12 +333,11 @@ export function UploadView() {
                                   </SelectItem>
                               ))
                           )}
-                          {/* DO NOT PUT CreateDataset component inside SelectContent */}
                       </SelectContent>
                   </Select>
 
-                  {/* Create Dataset Button - Placed *next to* the Select dropdown */}
-                  <CreateDataset onDatasetCreated={handleDatasetCreated} />
+  {/* +++ Conditional Rendering/Disabling based on Role +++ */}
+  
               </div>
           )}
 
