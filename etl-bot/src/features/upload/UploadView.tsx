@@ -1,5 +1,5 @@
 // src/features/upload/UploadView.tsx
-import { useState, useCallback } from 'react';
+import { useState, useCallback,useEffect  } from 'react';
 import { UploadHeader } from './components/UploadHeader';
 import { UploadArea } from './components/UploadArea';
 import { FileList } from './components/FileList';
@@ -7,20 +7,114 @@ import { ProcessingStatus } from './components/ProcessingStatus';
 import { UploadHistory } from './components/UploadHistory'; // Assuming this exists
 import axiosInstance from '@/lib/axios-instance';
 import { ETLFile, ProcessingStage } from './types';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import axios from 'axios'; // Use axios for easier error handling potentially
 import { useToast } from "@/hooks/use-toast"
+import { Skeleton } from "@/components/ui/skeleton"; // +++ Import Skeleton for loading state +++
+// +++ MODIFICATION START +++
+import { Loader2 } from 'lucide-react'; // For loading state
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"; // For error state
+import { Terminal } from 'lucide-react'; // Icon for error alert
+import { Label } from '@/components/ui/label';
+import { useAuth } from '@/contexts/AuthContext';
+import { DatasetSelector } from './components/DatasetSelector';
+import { DatasetActions } from './components/DatasetActions';
 
+// +++ MODIFICATION END +++
+interface DatasetListItem {
+  datasetId: string;
+  location: string
+}
+interface DatasetListApiResponse {
+  datasets: DatasetListItem[];
+}
+// Modified UploadView
 export function UploadView() {
   const [files, setFiles] = useState<ETLFile[]>([]);
   const [processingStage, setProcessingStage] = useState<ProcessingStage>('idle');
-  const [isUploading, setIsUploading] = useState<boolean>(false); // For upload button loading state
-
-  const { toast } = useToast(); // Initialize toast
-
+  const [isUploading, setIsUploading] = useState<boolean>(false);
+  const { toast } = useToast();
+  // +++ Get user role and loading state from Auth context +++
+  const { userProfile, isRoleLoading } = useAuth();
+  const isAdmin = userProfile?.role === 'admin';
+  // +++ End Auth context usage +++
+    // +++ MODIFICATION START +++
+  // State for fetched datasets, loading, and errors
+  const [availableDatasets, setAvailableDatasets] = useState<DatasetListItem[]>([]);
+  const [selectedDatasetId, setSelectedDatasetId] = useState<string>(""); // Start empty or null
+  const [loadingDatasets, setLoadingDatasets] = useState<boolean>(true);
+  const [datasetError, setDatasetError] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState<boolean>(false);
+  // We can derive a general 'isProcessing' state
+  const isProcessing = isUploading || isDeleting; // Add || isCreating if Create had its own loading state here
+  const fetchDatasets = async () => {
+    setLoadingDatasets(true);
+    setDatasetError(null);
+    try {
+      const resp = await axiosInstance.get<DatasetListApiResponse>('/api/bigquery/datasets');
+      // sort by ID
+      const datasets = resp.data.datasets.sort((a, b) =>
+        a.datasetId.localeCompare(b.datasetId)
+      );
+      setAvailableDatasets(datasets);
+  
+      if (datasets.length > 0 && !selectedDatasetId) {
+        setSelectedDatasetId(datasets[0].datasetId);
+      } else if (datasets.length === 0) {
+        setSelectedDatasetId("");
+        setDatasetError("No accessible datasets found.");
+      }
+    } catch (err: any) {
+      console.error("Error fetching datasets:", error);
+      const message = axios.isAxiosError(error) ? error.response?.data?.detail || error.message : error.message;
+      setDatasetError(`Failed to load datasets: ${message}`);
+      setAvailableDatasets([]); // Clear datasets on error
+      setSelectedDatasetId(""); // Clear selection on error
+    } finally {
+      setLoadingDatasets(false);
+    }
+  };
+  useEffect(() => {
+    fetchDatasets();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  
+  // Now this works too:
+  const handleDatasetCreated = () => {
+    fetchDatasets(); // ✅ This will work now
+  }; // Empty dependency array ensures this runs only once on mount
+  // +++ MODIFICATION END +++
+  const handleDeleteDatasetConfirmed = async () => {
+    if (!selectedDatasetId || !isAdmin) return; // Guard again
+    setIsDeleting(true);
+    try {
+        await axiosInstance.delete(`/api/bigquery/datasets/${selectedDatasetId}`);
+        toast({ title: "Dataset Deleted", description: `Dataset "${selectedDatasetId}" deleted.`, variant: "default" });
+        setSelectedDatasetId(""); // Reset selection
+        fetchDatasets(true);      // Refresh list
+    } catch (error: any) {
+        console.error(`Error deleting dataset ${selectedDatasetId}:`, error);
+        let message = `Failed to delete dataset "${selectedDatasetId}".`;
+        if (axios.isAxiosError(error)) {
+             if (error.response?.status === 404) { message = `Dataset "${selectedDatasetId}" not found.`; fetchDatasets(true); }
+             else { message = error.response?.data?.detail || error.message || message; }
+        } else if (error instanceof Error) { message = error.message; }
+        toast({ variant: "destructive", title: "Deletion Failed", description: message });
+    } finally {
+        setIsDeleting(false);
+    }
+};
   const handleFilesAdded = useCallback((newFiles: File[]) => {
+    if (!selectedDatasetId) {
+      toast({
+          variant: "destructive",
+          title: "Select Dataset",
+          description: "Please select a target dataset first before adding files.",
+      });
+      return; // Prevent adding files if no dataset is selected
+  }
     const newETLFiles: ETLFile[] = newFiles
-       // Basic validation - check type and maybe size limit
-      .filter(file => /\.(xlsx|xls)$/i.test(file.name) && file.size < 50 * 1024 * 1024) // Example: 50MB limit
+      .filter(file => /\.(xlsx|xls)$/i.test(file.name) && file.size < 50 * 1024 * 1024)
       .map((file): ETLFile => ({
         id: crypto.randomUUID(),
         file,
@@ -31,23 +125,24 @@ export function UploadView() {
         progress: 0,
         errorMessage: null,
         uploadedAt: new Date(),
+        // +++ MODIFICATION START +++
+        targetDatasetId: selectedDatasetId // Associate the currently selected dataset
+        // +++ MODIFICATION END +++
       }));
 
       if (newETLFiles.length !== newFiles.length) {
-          toast({
-              variant: "destructive",
-              title: "Invalid Files Skipped",
-              description: "Some files were not added. Please ensure they are valid Excel files (.xlsx, .xls) under 50MB.",
-          });
+          toast({ variant: "destructive", title: "Invalid Files Skipped", description: "Only Excel files (.xlsx, .xls) under 50MB are allowed." });
       }
 
       setFiles(prevFiles => {
-          // Avoid adding duplicates by name (optional)
           const existingNames = new Set(prevFiles.map(f => f.name));
           const uniqueNewFiles = newETLFiles.filter(nf => !existingNames.has(nf.name));
           return [...prevFiles, ...uniqueNewFiles];
       });
-  }, [toast]);
+  // +++ MODIFICATION START +++
+  // Depend on selectedDatasetId so new files get the correct target
+  }, [toast, selectedDatasetId]);
+  // +++ MODIFICATION END +++
 
   // --- Function to update a single file's state ---
   const updateFileState = useCallback((id: string, updates: Partial<ETLFile>) => {
@@ -64,27 +159,41 @@ export function UploadView() {
       return;
     }
 
+    // Double-check if a dataset is selected (using the placeholder state here)
+    if (!selectedDatasetId) {
+        toast({ title: "Dataset Required", description: "Please select a target dataset before uploading.", variant: "destructive" });
+        return;
+    }
+
     setIsUploading(true);
     setProcessingStage('uploading');
-
     let successCount = 0;
     let errorCount = 0;
 
-    // Process files one by one or concurrently using Promise.allSettled
-    // Using Promise.allSettled is better for handling individual failures
     const uploadPromises = filesToUpload.map(async (file) => {
-      updateFileState(file.id, { status: 'uploading', progress: 10, errorMessage: null }); // Initial update
+      // Ensure the file has a target dataset ID (should be set on add, but double-check)
+      const targetDataset = file.targetDatasetId || selectedDatasetId;
+      if (!targetDataset) {
+          updateFileState(file.id, { status: 'error', progress: 0, errorMessage: "Target dataset not specified for this file." });
+          return { status: 'rejected', id: file.id, reason: "Target dataset missing." };
+      }
+
+      updateFileState(file.id, { status: 'uploading', progress: 10, errorMessage: null });
 
       try {
-        // 1. Get Signed URL
+        // 1. Get Signed URL - PASS targetDatasetId
         let signedUrlResponse;
         try {
-            // Use axios for better error details potentially
+            // Pass dataset_id as query parameter
+            const urlParams = new URLSearchParams({
+                filename: file.name,
+                dataset_id: targetDataset // Use the dataset ID associated with the file
+            });
             signedUrlResponse = await axiosInstance.get<{ url: string; object_name: string }>(
-                `/api/upload-url?filename=${encodeURIComponent(file.name)}` // Use relative URL if proxy is set up
+                `/api/upload-url?${urlParams.toString()}` // API expects dataset_id
             );
-            if (!signedUrlResponse.data || !signedUrlResponse.data.url || !signedUrlResponse.data.object_name) {
-                throw new Error("Invalid signed URL response from server.");
+            if (!signedUrlResponse.data?.url || !signedUrlResponse.data?.object_name) {
+                throw new Error("Invalid signed URL response.");
             }
             updateFileState(file.id, { progress: 30, gcsObjectName: signedUrlResponse.data.object_name });
         } catch (urlError: any) {
@@ -94,64 +203,47 @@ export function UploadView() {
 
         const { url: uploadUrl, object_name } = signedUrlResponse.data;
 
-        // 2. Upload to GCS (Using fetch for simplicity, axios could add progress)
+        // 2. Upload to GCS (Unchanged technically, URL contains the path)
         updateFileState(file.id, { progress: 50 });
-        const uploadResp = await fetch(uploadUrl, {
-          method: 'PUT',
-          headers: { 'Content-Type': file.type },
-          body: file.file
-        });
-
-        if (!uploadResp.ok) {
-          let errorText = 'Upload to storage failed.';
-          try { errorText = await uploadResp.text(); } catch { /* ignore text parsing error */ }
-          throw new Error(`Upload failed: ${uploadResp.status} ${errorText.substring(0, 100)}`);
-        }
+        const uploadResp = await fetch(uploadUrl, { method: 'PUT', headers: { 'Content-Type': file.type }, body: file.file });
+        if (!uploadResp.ok) { let errorText = 'Upload failed.'; try { errorText = await uploadResp.text(); } catch { /* ignore */ } throw new Error(`Upload failed: ${uploadResp.status} ${errorText.substring(0, 100)}`); }
         updateFileState(file.id, { progress: 80 });
-
-        // 3. Trigger ETL
-        const triggerResp = await axiosInstance.post('/api/trigger-etl', { object_name }); // Use relative URL
-
-        if (triggerResp.status !== 200 && triggerResp.status !== 202) { // Check for non-2xx status
-             throw new Error(`Failed to trigger processing: ${triggerResp.status} ${triggerResp.data?.detail || ''}`);
+        console.log(`[DEBUG] Triggering ETL for file ${file.name}:`, {
+          payload: {
+              object_name: object_name,
+              target_dataset_id: targetDataset
+          }
+      });
+        // 3. Trigger ETL - PASS object_name AND target_dataset_id
+        const triggerResp = await axiosInstance.post('/api/trigger-etl', {
+             object_name: object_name,         // The full GCS path including prefix
+             target_dataset_id: targetDataset // The BQ dataset to load into
+            
         }
-
-        // Success for this file
-        updateFileState(file.id, { status: 'completed', progress: 100 }); // Mark as completed frontend-wise
+      );
+        
+        if (triggerResp.status !== 200 && triggerResp.status !== 202) { throw new Error(`Failed to trigger processing: ${triggerResp.status} ${triggerResp.data?.detail || ''}`); }
+        
+        // Success
+        updateFileState(file.id, { status: 'completed', progress: 100 });
         return { status: 'fulfilled', id: file.id };
 
       } catch (error: any) {
         console.error(`Error processing file ${file.name}:`, error);
-        const errorMessage = error.message || 'An unknown error occurred';
+        const errorMessage = error.message || 'Unknown error';
         updateFileState(file.id, { status: 'error', progress: 0, errorMessage });
         return { status: 'rejected', id: file.id, reason: errorMessage };
       }
     });
 
-    // Wait for all uploads to settle
     const results = await Promise.allSettled(uploadPromises);
+    results.forEach(result => { if (result.status === 'fulfilled') successCount++; else errorCount++; });
 
-    results.forEach(result => {
-      if (result.status === 'fulfilled') {
-        successCount++;
-      } else {
-        errorCount++;
-      }
-    });
+    setIsUploading(false);
 
-    setIsUploading(false); // Reset button loading state
-
-    // Update overall stage based on results
-    if (successCount > 0 && errorCount === 0) {
-      setProcessingStage('completed'); // All succeeded
-      toast({ title: "Upload Complete", description: `${successCount} file(s) successfully uploaded and sent for processing.` });
-    } else if (successCount > 0 && errorCount > 0) {
-      setProcessingStage('completed'); // Mark as completed, but errors exist
-       toast({ variant: "warning", title: "Upload Partially Complete", description: `${successCount} file(s) uploaded, ${errorCount} failed.` });
-    } else {
-      setProcessingStage('idle'); // All failed, reset to idle
-      toast({ variant: "destructive", title: "Upload Failed", description: `All ${errorCount} file(s) failed to upload.` });
-    }
+    if (successCount > 0 && errorCount === 0) { setProcessingStage('completed'); toast({ title: "Upload Complete", description: `${successCount} file(s) sent for processing.` }); }
+    else if (successCount > 0 && errorCount > 0) { setProcessingStage('completed'); toast({ variant: "warning", title: "Upload Partially Complete", description: `${successCount} uploaded, ${errorCount} failed.` }); }
+    else { setProcessingStage('idle'); toast({ variant: "destructive", title: "Upload Failed", description: `All ${errorCount} file(s) failed.` }); }
   };
 
   const removeFile = useCallback((id: string) => {
@@ -174,36 +266,119 @@ export function UploadView() {
   const filesWithError = files.filter(f => f.status === 'error').length;
 
   return (
-    // Use theme background and text colors
     <div className="container mx-auto px-4 py-8 max-w-5xl space-y-8">
       <UploadHeader />
 
+      {/* --- CORRECTED Dataset Selector Section --- */}
+
+      <div className="p-4 border rounded-lg bg-card shadow-sm space-y-3">
+          <Label htmlFor="dataset-select" className="block text-sm font-medium text-muted-foreground">
+              Target Dataset <span className="text-destructive">*</span>
+          </Label>
+          {isAdmin && (
+          <DatasetActions
+                        isAdmin={isAdmin}
+                        isRoleLoading={isRoleLoading}
+                        isLoadingDatasets={loadingDatasets}
+                        selectedDatasetId={selectedDatasetId || null} // Pass null if nothing is selected
+                        isProcessing={isProcessing} // Pass combined processing state
+                        onDatasetCreated={handleDatasetCreated} // Callback for create button
+                        onDeleteConfirmed={handleDeleteDatasetConfirmed} // Callback for delete button
+                    />
+                  )}
+          {/* Loading State */}
+          {loadingDatasets && (
+              <div className="flex items-center text-sm text-muted-foreground">
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading datasets...
+              </div>
+          )}
+
+          {/* Error State */}
+          {!loadingDatasets && datasetError && !availableDatasets.length && (
+              <Alert variant="destructive">
+                  <Terminal className="h-4 w-4" />
+                  <AlertTitle>Error Loading Datasets</AlertTitle>
+                  <AlertDescription>
+                      {datasetError}
+                  </AlertDescription>
+              </Alert>
+          )}
+
+          {/* Dataset Selector and Create Button (Displayed when not loading and no critical error preventing listing) */}
+          {!loadingDatasets && !datasetError && (
+              <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                  {/* Select Dropdown */}
+                  <Select
+                      value={selectedDatasetId}
+                      onValueChange={setSelectedDatasetId}
+                      disabled={
+                          isUploading || // Disable during active upload
+                          processingStage === 'uploading' // Disable during processing stage
+                          // Allow selection even if availableDatasets is empty initially, user might create one
+                      }
+                  >
+                      <SelectTrigger id="dataset-select" className="w-full sm:flex-grow sm:w-auto">
+                          {/* Use flex-grow on trigger for better responsiveness */}
+                          <SelectValue placeholder="Select a dataset or create new..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                          {availableDatasets.length === 0 ? (
+                              <div className="px-4 py-2 text-sm text-muted-foreground italic">
+                                  No datasets found. Create one?
+                              </div>
+                          ) : (
+                              availableDatasets.map(ds => (
+                                  <SelectItem key={ds.datasetId} value={ds.datasetId}>
+                                      {ds.datasetId} ({ds.location})
+                                  </SelectItem>
+                              ))
+                          )}
+                      </SelectContent>
+                  </Select>
+
+  {/* +++ Conditional Rendering/Disabling based on Role +++ */}
+  
+              </div>
+          )}
+
+           {/* Helper text */}
+          <p className="text-xs text-muted-foreground pt-1">
+               Select the BigQuery dataset where your uploaded files will be processed, or create a new one.
+          </p>
+      </div>
+      {/* --- END Dataset Selector Section --- */}
+
+
+      {/* --- Upload Area and File List --- */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <div className="md:col-span-2 space-y-6">
+          {/* Upload Area */}
           <UploadArea
             onFilesAdded={handleFilesAdded}
-            disabled={processingStage === 'uploading' || processingStage === 'processing'}
+            // Disable adding files if no dataset is selected, or during loading/error/upload
+            disabled={!selectedDatasetId || loadingDatasets || !!datasetError || isUploading || processingStage === 'uploading'}
           />
 
+          {/* File List */}
           {files.length > 0 && (
              <FileList
                 files={files}
                 onRemove={removeFile}
                 onUpload={handleUpload}
                 onClearCompleted={clearCompleted}
-                isProcessing={processingStage === 'uploading' || processingStage === 'processing'}
-                isLoading={isUploading} // Pass loading state
+                isProcessing={processingStage === 'uploading' || isUploading} // Simplified processing state check
+                isLoading={isUploading} // Pass loading state specifically for upload button
              />
           )}
         </div>
 
+        {/* Status and History */}
         <div className="space-y-6">
           <ProcessingStatus
             stage={processingStage}
             filesCount={totalFiles}
             errorCount={filesWithError}
           />
-          {/* Keep UploadHistory static for now, or implement dynamic updates */}
           {/* <UploadHistory /> */}
         </div>
       </div>
