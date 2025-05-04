@@ -17,12 +17,11 @@ import {
     Link,
     useNavigate,
     useLocation,
-    Navigate
 } from 'react-router-dom';
 
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { Database, UploadCloud, LogOut } from "lucide-react";
+import { Database, UploadCloud, LogOut, Loader2 } from "lucide-react";
 import { auth } from './firebase-config';
 import { signOut } from 'firebase/auth';
 

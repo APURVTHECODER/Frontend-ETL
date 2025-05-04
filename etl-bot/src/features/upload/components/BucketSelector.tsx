@@ -55,7 +55,7 @@ export function BucketSelector({ selectedBucket, onSelectBucket, disabled = fals
 
   const handleCreateBucket = async () => {
     if (!newBucketName.trim()) {
-      toast({ variant: 'warning', title: 'Bucket name required' });
+      toast({ variant: 'default', title: 'Bucket name required' });
       return;
     }
     setIsLoadingCreate(true);

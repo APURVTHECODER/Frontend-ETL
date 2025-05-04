@@ -6,7 +6,7 @@ import { auth, googleProvider } from '@/firebase-config'; // Adjust path
 import { useAuth } from '@/contexts/AuthContext'; // Adjust path
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { LogIn, Loader2 } from 'lucide-react'; // Import icons
+import { Loader2 } from 'lucide-react'; // Import icons
 import { FcGoogle } from "react-icons/fc"; // Install react-icons: npm install react-icons
 import { Database, Terminal } from "lucide-react";
 

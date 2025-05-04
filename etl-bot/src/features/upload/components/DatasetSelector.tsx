@@ -1,8 +1,6 @@
 // src/features/upload/components/DatasetSelector.tsx
-import React from 'react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Loader2 } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Terminal } from 'lucide-react';
 
@@ -65,7 +63,7 @@ export function DatasetSelector({
         className="w-full sm:flex-grow sm:w-auto"
         aria-label="Select target dataset"
       >
-        <SelectValue placeholder={availableDatasets.length === 0 ? "No datasets available" : "Select a dataset..."} />
+        <SelectValue placeholder={availableDatasets.length === 0 ? "No workspace available" : "Select a workspace..."} />
       </SelectTrigger>
       <SelectContent>
         {availableDatasets.length === 0 ? (
