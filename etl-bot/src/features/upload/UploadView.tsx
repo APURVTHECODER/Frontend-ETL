@@ -4,21 +4,18 @@ import { UploadHeader } from './components/UploadHeader';
 import { UploadArea } from './components/UploadArea';
 import { FileList } from './components/FileList';
 import { ProcessingStatus } from './components/ProcessingStatus';
-import { UploadHistory } from './components/UploadHistory'; // Assuming this exists
 import axiosInstance from '@/lib/axios-instance';
 import { ETLFile, ProcessingStage } from './types';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import axios from 'axios'; // Use axios for easier error handling potentially
 import { useToast } from "@/hooks/use-toast"
-import { Skeleton } from "@/components/ui/skeleton"; // +++ Import Skeleton for loading state +++
 // +++ MODIFICATION START +++
 import { Loader2 } from 'lucide-react'; // For loading state
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"; // For error state
 import { Terminal } from 'lucide-react'; // Icon for error alert
 import { Label } from '@/components/ui/label';
 import { useAuth } from '@/contexts/AuthContext';
-import { DatasetSelector } from './components/DatasetSelector';
 import { DatasetActions } from './components/DatasetActions';
+import { v4 as uuidv4 } from 'uuid';
 
 // +++ MODIFICATION END +++
 interface DatasetListItem {
@@ -65,8 +62,8 @@ export function UploadView() {
         setDatasetError("No accessible datasets found.");
       }
     } catch (err: any) {
-      console.error("Error fetching datasets:", error);
-      const message = axios.isAxiosError(error) ? error.response?.data?.detail || error.message : error.message;
+      console.error("Error fetching datasets:", err);
+      const message = (err as any).isAxiosError ? err.response?.data?.detail || err.message : err.message;
       setDatasetError(`Failed to load datasets: ${message}`);
       setAvailableDatasets([]); // Clear datasets on error
       setSelectedDatasetId(""); // Clear selection on error
@@ -91,12 +88,12 @@ export function UploadView() {
         await axiosInstance.delete(`/api/bigquery/datasets/${selectedDatasetId}`);
         toast({ title: "Dataset Deleted", description: `Dataset "${selectedDatasetId}" deleted.`, variant: "default" });
         setSelectedDatasetId(""); // Reset selection
-        fetchDatasets(true);      // Refresh list
+        fetchDatasets();      // Refresh list
     } catch (error: any) {
         console.error(`Error deleting dataset ${selectedDatasetId}:`, error);
         let message = `Failed to delete dataset "${selectedDatasetId}".`;
-        if (axios.isAxiosError(error)) {
-             if (error.response?.status === 404) { message = `Dataset "${selectedDatasetId}" not found.`; fetchDatasets(true); }
+        if ((error as any).isAxiosError) {
+             if (error.response?.status === 404) { message = `Dataset "${selectedDatasetId}" not found.`; fetchDatasets(); }
              else { message = error.response?.data?.detail || error.message || message; }
         } else if (error instanceof Error) { message = error.message; }
         toast({ variant: "destructive", title: "Deletion Failed", description: message });
@@ -116,7 +113,7 @@ export function UploadView() {
     const newETLFiles: ETLFile[] = newFiles
       .filter(file => /\.(xlsx|xls)$/i.test(file.name) && file.size < 50 * 1024 * 1024)
       .map((file): ETLFile => ({
-        id: crypto.randomUUID(),
+        id : uuidv4(),
         file,
         name: file.name,
         size: file.size,
@@ -197,7 +194,7 @@ export function UploadView() {
             }
             updateFileState(file.id, { progress: 30, gcsObjectName: signedUrlResponse.data.object_name });
         } catch (urlError: any) {
-             const message = axios.isAxiosError(urlError) ? urlError.response?.data?.detail || urlError.message : urlError.message;
+             const message = (urlError as any).isAxiosError ? urlError.response?.data?.detail || urlError.message : urlError.message;
              throw new Error(`Failed to get upload URL: ${message}`);
         }
 
@@ -214,15 +211,21 @@ export function UploadView() {
               target_dataset_id: targetDataset
           }
       });
+      interface ApiErrorResponse {
+        detail?: string;
+        // Add other possible error response fields if needed
+      }
         // 3. Trigger ETL - PASS object_name AND target_dataset_id
-        const triggerResp = await axiosInstance.post('/api/trigger-etl', {
+        const triggerResp = await axiosInstance.post<ApiErrorResponse>('/api/trigger-etl', {
              object_name: object_name,         // The full GCS path including prefix
              target_dataset_id: targetDataset // The BQ dataset to load into
             
         }
       );
         
-        if (triggerResp.status !== 200 && triggerResp.status !== 202) { throw new Error(`Failed to trigger processing: ${triggerResp.status} ${triggerResp.data?.detail || ''}`); }
+      if (triggerResp.status !== 200 && triggerResp.status !== 202) { 
+        throw new Error(`Failed to trigger processing: ${triggerResp.status} ${triggerResp.data?.detail || ''}`); 
+}
         
         // Success
         updateFileState(file.id, { status: 'completed', progress: 100 });
@@ -242,7 +245,7 @@ export function UploadView() {
     setIsUploading(false);
 
     if (successCount > 0 && errorCount === 0) { setProcessingStage('completed'); toast({ title: "Upload Complete", description: `${successCount} file(s) sent for processing.` }); }
-    else if (successCount > 0 && errorCount > 0) { setProcessingStage('completed'); toast({ variant: "warning", title: "Upload Partially Complete", description: `${successCount} uploaded, ${errorCount} failed.` }); }
+    else if (successCount > 0 && errorCount > 0) { setProcessingStage('completed'); toast({ variant: "default", title: "Upload Partially Complete", description: `${successCount} uploaded, ${errorCount} failed.` }); }
     else { setProcessingStage('idle'); toast({ variant: "destructive", title: "Upload Failed", description: `All ${errorCount} file(s) failed.` }); }
   };
 

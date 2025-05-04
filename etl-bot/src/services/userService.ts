@@ -1,6 +1,5 @@
 // services/userService.ts
 import axiosInstance from '@/lib/axios-instance';
-import axios from 'axios';
 
 export interface UserProfile {
   user_id: string; // Firebase UID
@@ -20,7 +19,7 @@ export const fetchUserProfile = async (): Promise<UserProfile> => {
     return response.data;
   } catch (error: any) {
     console.error("Failed to fetch user profile:", error);
-    const message = axios.isAxiosError(error)
+    const message = (error as any).isAxiosError
       ? error.response?.data?.detail || error.message
       : error.message || 'An unknown error occurred';
     // Rethrow or handle more gracefully? For now, rethrow might be okay

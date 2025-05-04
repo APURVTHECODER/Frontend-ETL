@@ -1,7 +1,5 @@
 import React, { useEffect, useState, useRef, useCallback, useMemo } from "react"; // Added useMemo
-import axios, { AxiosError } from "axios";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
 import Editor from '@monaco-editor/react'
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -12,7 +10,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
     Loader2, Terminal, Search, Database, BrainCircuit, ListTree, Bookmark,
     Code, Table2, RefreshCw, ChevronLeft, ChevronRight, ChevronsLeft,
-    ChevronsRight, Download, SortAsc, SortDesc, ArrowUpDown, Info,
+    ChevronsRight, SortAsc, SortDesc, ArrowUpDown, Info,
     BarChart4,
     LineChart as LineChartIcon, PieChart as PieChartIcon, Dot , Trash2 , GripVertical ,History,Copy,
     ListFilter, // Added Filter icon
@@ -29,13 +27,12 @@ import {
     Tooltip, TooltipContent, TooltipProvider, TooltipTrigger
 } from "@/components/ui/tooltip";
 import {
-    Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue,
+    Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import {
     Tabs, TabsContent, TabsList, TabsTrigger,
 } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
 import { saveAs } from 'file-saver';
 // --- Import Filter Components and Types ---
 import { FilterConfig, ActiveFilters, ActiveFilterValue, FilterType } from '@/components/filters/filterTypes';
@@ -88,10 +85,15 @@ interface VizSuggestion {
     y_axis_columns: string[];
     rationale: string;
 }
-interface ActiveVisualizationConfig extends VizSuggestion {
-    // You might add specific display settings here later
-}
-
+// interface ActiveVisualizationConfig extends VizSuggestion {
+//     // You might add specific display settings here later
+// }
+type ActiveVisualizationConfig = {
+    chart_type: string;
+    x_axis_column: string;
+    y_axis_columns: string[];
+    rationale?: string;
+  };
 const BigQueryTableViewer: React.FC = () => {
     // SecondTeam
     // process.env.NEXT_PUBLIC_GCP_PROJECT_ID || 
@@ -129,7 +131,7 @@ const BigQueryTableViewer: React.FC = () => {
     const [nlPrompt, setNlPrompt] = useState<string>(""); // NL Prompt state
     const [jobResults, setJobResults] = useState<JobResultsResponse | null>(null); // Keep this for original data
     const [loadingResults, setLoadingResults] = useState<boolean>(false);
-    const [currentResultsPageToken, setCurrentResultsPageToken] = useState<string | null>(null);
+    const [, setCurrentResultsPageToken] = useState<string | null>(null);
     const [resultsError, setResultsError] = useState<string>("");
     const [schemaData, setSchemaData] = useState<SchemaResponse | null>(null);
     const [loadingSchema, setLoadingSchema] = useState<boolean>(false);
@@ -194,7 +196,16 @@ const BigQueryTableViewer: React.FC = () => {
         return Array.from(tables);
     }, []);
 
-    const getErrorMessage = useCallback((error: any): string => { if(axios.isAxiosError(error)){const d=error.response?.data; if(d && typeof d==='object' && 'detail' in d)return String(d.detail); if(typeof d==='string')return d; return error.message;} if(error instanceof Error)return error.message; return"An unknown error occurred."; }, []);
+    const getErrorMessage = useCallback((error: any): string => { 
+        {
+            const d=error.response?.data; if(d && typeof d==='object' && 'detail' in d)return String(d.detail);
+             if(typeof d==='string')
+                return d; return error.message;
+            } 
+            if(error instanceof Error)
+                return error.message; 
+            return"An unknown error occurred."; 
+        }, []);
     const formatBytes = useCallback((bytes: number | null | undefined): string => { if(bytes==null||bytes===undefined||bytes===0)return"0 Bytes"; const k=1024,s=["Bytes","KB","MB","GB","TB"],i=Math.floor(Math.log(bytes)/Math.log(k)); return parseFloat((bytes/Math.pow(k,i)).toFixed(2))+" "+s[i]; }, []);
     const formatDate = useCallback((dateString: string | null | undefined): string => { if(!dateString)return"N/A"; try{return new Date(dateString).toLocaleString();}catch(e){return dateString;} }, []);
     const copyToClipboard = useCallback((text: string, message: string = "Copied!"): void => { navigator.clipboard.writeText(text).then(()=>{console.log(message); /* TODO: Add toast */}).catch(err=>{console.error("Copy failed:",err);}); }, []);
@@ -287,7 +298,7 @@ const BigQueryTableViewer: React.FC = () => {
                         }
             
                         // Use file-saver to trigger the download
-                        saveAs(response.data, filename);
+                        saveAs(filename);
                         toast({ title: "Download Successfull.", variant: "successfull" });
                         // Optional: Show a success toast
             
@@ -385,7 +396,11 @@ const BigQueryTableViewer: React.FC = () => {
         availableDatasets,
         toast
     ]);
-
+    interface TableDataApiResponse {
+        rows: RowData[]; // Assuming RowData is defined
+        totalRows?: number;
+        stats?: TableStats; // Assuming TableStats is defined
+    }
 
     // fetchTables, handleTableSelect, etc remain unchanged for now
     const fetchTables = useCallback(async () => {
@@ -454,13 +469,16 @@ const BigQueryTableViewer: React.FC = () => {
         setCurrentOutputTab("data"); // Switch to PREVIEW tab
         try {
             const url = `/api/bigquery/table-data?dataset_id=${encodeURIComponent(fullDatasetId)}&table_id=${encodeURIComponent(tableId)}&page=1&limit=${previewRowsPerPage}`;
-            const r = await axiosInstance.get(url);
-            const d = r.data;
-            setPreviewRows(d?.rows ?? []);
-            setPreviewTotalRows(d?.totalRows ?? (d?.rows?.length ?? 0));
+            const r = await axiosInstance.get<TableDataApiResponse>(url); // Type the response
+            const d = r.data; // Now d is known to be TableDataApiResponse | undefined
+            setPreviewRows(d?.rows ?? []); // This should now type-check better
+            setPreviewTotalRows(d?.totalRows ?? d?.rows?.length ?? 0);
             setTableStats(d?.stats ?? null);
-            if (d?.rows?.length > 0) setPreviewColumns(Object.keys(d.rows[0]));
-            else setPreviewColumns([]);
+            if (d?.rows && d.rows.length > 0) { // Check d.rows exists before accessing index
+                 setPreviewColumns(Object.keys(d.rows[0]));
+            } else {
+                 setPreviewColumns([]);
+            }
         } catch (e: any) {
             console.error("Error fetching table data:", e);
             setPreviewError(`Load preview failed: ${getErrorMessage(e)}`);
@@ -511,8 +529,33 @@ const BigQueryTableViewer: React.FC = () => {
     }, [jobResults, sql, lastUserPrompt, getErrorMessage]); // Dependencies
     // +++ END Function to Fetch AI Summary +++
 
+    type TableDataResponse = {
+        rows: Record<string, any>[];
+      };
+      const handlePreviewPageChange = useCallback(async (newPage: number) => {
+        if (!selectedTableId || newPage === previewCurrentPage) return;
 
-    const handlePreviewPageChange = useCallback(async (newPage: number) => { if(!selectedTableId||newPage===previewCurrentPage)return; setLoadingPreview(true); setPreviewError(""); try { const url=`/api/bigquery/table-data?dataset_id=${encodeURIComponent(fullDatasetId)}&table_id=${encodeURIComponent(selectedTableId)}&page=${newPage}&limit=${previewRowsPerPage}`; const r=await axiosInstance.get(url); const d=r.data; setPreviewRows(d?.rows??[]); setPreviewCurrentPage(newPage); if((d?.rows?.length>0)&&previewColumns.length===0)setPreviewColumns(Object.keys(d.rows[0])); } catch (e:any){ console.error("Error fetching page data:",e); setPreviewError(`Load page ${newPage} failed: ${getErrorMessage(e)}`); } finally { setLoadingPreview(false); } }, [selectedTableId, previewCurrentPage, previewRowsPerPage, fullDatasetId, previewColumns.length, getErrorMessage]);
+        setLoadingPreview(true);
+        setPreviewError("");
+
+        try {
+          const url = `/api/bigquery/table-data?dataset_id=${encodeURIComponent(fullDatasetId)}&table_id=${encodeURIComponent(selectedTableId)}&page=${newPage}&limit=${previewRowsPerPage}`;
+          const r = await axiosInstance.get<TableDataResponse>(url);
+          const d = r.data;
+
+          setPreviewRows(d?.rows ?? []);
+          setPreviewCurrentPage(newPage);
+
+          if ((d?.rows?.length > 0) && previewColumns.length === 0) {
+            setPreviewColumns(Object.keys(d.rows[0]));
+          }
+        } catch (e: any) {
+          console.error("Error fetching page data:", e);
+          setPreviewError(`Load page ${newPage} failed: ${getErrorMessage(e)}`);
+        } finally {
+          setLoadingPreview(false);
+        }
+      }, [selectedTableId, previewCurrentPage, previewRowsPerPage, fullDatasetId, previewColumns.length, getErrorMessage]);
     const handlePreviewRowsPerPageChange = useCallback((value: string) => { const n=parseInt(value,10); setPreviewRowsPerPage(n); setPreviewCurrentPage(1); if(selectedTableId)handleTableSelect(selectedTableId);}, [selectedTableId, handleTableSelect]);
     const handlePreviewSort = useCallback((columnName: string) => { let d:"asc"|"desc"="asc"; if(previewSortConfig?.key===columnName&&previewSortConfig.direction==="asc")d="desc"; setPreviewSortConfig({key:columnName,direction:d}); const s=[...previewRows].sort((a,b)=>{ const valA=a[columnName], valB=b[columnName]; if(valA==null)return 1; if(valB==null)return -1; if(valA<valB)return d==="asc"?-1:1; if(valA>valB)return d==="asc"?1:-1; return 0; }); setPreviewRows(s);}, [previewSortConfig, previewRows]);
     
@@ -980,7 +1023,7 @@ useEffect(() => {
 
             if (isInvalid) {
                 console.warn("Active visualization might be invalid due to filtering. Clearing.");
-                toast.warning("Current visualization cleared due to data filtering.", { duration: 3000 });
+                // toast.warning("Current visualization cleared due to data filtering.", { duration: 3000 });
                 setActiveVisualization(null);
                 if (currentOutputTab === 'visualize') {
                     setCurrentOutputTab('results'); // Switch back if the active viz tab is open and becomes invalid
@@ -1185,7 +1228,7 @@ useEffect(() => {
                             onClick={() => setSql(item.sql)}
                         >
                             <div className="flex justify-between items-center mb-1">
-                                <Badge variant={item.success ? "success" : "destructive"} className="text-xs px-1.5 py-0 h-5">
+                                <Badge variant={item.success ? "default" : "destructive"} className="text-xs px-1.5 py-0 h-5">
                                     {item.success ? 'Success' : 'Failed'}
                                 </Badge>
                                 <span className="text-xs text-muted-foreground">
@@ -1249,7 +1292,7 @@ useEffect(() => {
                         <AccordionItem value={t.table_id} key={t.table_id} className="border rounded-md mb-1.5 bg-card shadow-sm">
                             <AccordionTrigger className="text-xs hover:no-underline py-1.5 px-2 font-medium text-card-foreground hover:bg-muted/50 rounded-t-md"><div className="flex items-center gap-2"><Table2 className="h-3.5 w-3.5 text-primary"/><span className="truncate">{t.table_id}</span></div></AccordionTrigger>
                             <AccordionContent className="pt-0 px-2 pb-1.5">
-                                <div className="text-xs"><div className="border bg-background rounded-sm overflow-hidden text-[11px]"><table className="w-full"><thead><tr className="bg-muted border-b"><th className="px-2 py-1 text-left font-medium text-muted-foreground">Column</th><th className="px-2 py-1 text-left font-medium text-muted-foreground">Type</th><th className="px-2 py-1 text-left font-medium text-muted-foreground">Mode</th></tr></thead><tbody>{t.columns.map((c,i)=>(<tr key={c.name} className={i%2===0?'bg-card':'bg-muted/50'}><td className="px-2 py-0.5 font-mono text-foreground truncate max-w-20">{c.name}</td><td className="px-2 py-0.5 text-foreground">{c.type}</td><td className="px-2 py-0.5"><Badge variant={c.mode==='REQUIRED'?'default':'outline'} className="text-[10px] px-1 py-0 h-4">{c.mode}</Badge></td></tr>))}</tbody></table></div><div className="mt-1.5 flex justify-end"><Button variant="ghost" size="xs" className="text-xs h-6 text-muted-foreground hover:text-primary" onClick={()=>{const s=`SELECT ${t.columns.slice(0,5).map(c=>c.name).join(', ')}\nFROM \`${fullDatasetId}.${t.table_id}\`\nLIMIT 100;`;setSql(s);}}><Code className="mr-1 h-3 w-3"/>Query</Button></div></div>
+                                <div className="text-xs"><div className="border bg-background rounded-sm overflow-hidden text-[11px]"><table className="w-full"><thead><tr className="bg-muted border-b"><th className="px-2 py-1 text-left font-medium text-muted-foreground">Column</th><th className="px-2 py-1 text-left font-medium text-muted-foreground">Type</th><th className="px-2 py-1 text-left font-medium text-muted-foreground">Mode</th></tr></thead><tbody>{t.columns.map((c,i)=>(<tr key={c.name} className={i%2===0?'bg-card':'bg-muted/50'}><td className="px-2 py-0.5 font-mono text-foreground truncate max-w-20">{c.name}</td><td className="px-2 py-0.5 text-foreground">{c.type}</td><td className="px-2 py-0.5"><Badge variant={c.mode==='REQUIRED'?'default':'outline'} className="text-[10px] px-1 py-0 h-4">{c.mode}</Badge></td></tr>))}</tbody></table></div><div className="mt-1.5 flex justify-end"><Button variant="ghost" size="sm" className="text-xs h-6 text-muted-foreground hover:text-primary" onClick={()=>{const s=`SELECT ${t.columns.slice(0,5).map(c=>c.name).join(', ')}\nFROM \`${fullDatasetId}.${t.table_id}\`\nLIMIT 100;`;setSql(s);}}><Code className="mr-1 h-3 w-3"/>Query</Button></div></div>
                             </AccordionContent>
                         </AccordionItem>))} </Accordion></ScrollArea>)}
                     {(!schemaData||displayTables.length===0)&&!loadingSchema&&!schemaError&&(<div className="text-center py-6 text-muted-foreground text-sm">No schema{schemaSearchQuery&&` matching "${schemaSearchQuery}"`}.</div>)}
@@ -1296,8 +1339,8 @@ useEffect(() => {
                     <h2 className="text-base font-semibold truncate flex items-center text-foreground" title={selectedTableId}><Table2 className="mr-2 h-4 w-4 text-primary"/>{selectedTableId}</h2>
                     <div className="flex gap-1">
                         {/* Buttons use default theme variants/colors */}
-                        <Button variant="ghost" size="xs" onClick={()=>toggleFavorite(selectedTableId)} className={`h-7 ${favoriteTables.includes(selectedTableId)?"text-yellow-500 dark:text-yellow-400":""}`}><Bookmark className="mr-1 h-3 w-3" fill={favoriteTables.includes(selectedTableId)?"currentColor":"none"}/>Fav</Button>
-                        <Button variant="ghost" size="xs" onClick={()=>copyToClipboard(`\`${fullDatasetId}.${selectedTableId}\``,"Table name copied!")} className="h-7"><Copy className="mr-1 h-3 w-3"/>Copy</Button>
+                        <Button variant="ghost" size="sm" onClick={()=>toggleFavorite(selectedTableId)} className={`h-7 ${favoriteTables.includes(selectedTableId)?"text-yellow-500 dark:text-yellow-400":""}`}><Bookmark className="mr-1 h-3 w-3" fill={favoriteTables.includes(selectedTableId)?"currentColor":"none"}/>Fav</Button>
+                        <Button variant="ghost" size="sm" onClick={()=>copyToClipboard(`\`${fullDatasetId}.${selectedTableId}\``,"Table name copied!")} className="h-7"><Copy className="mr-1 h-3 w-3"/>Copy</Button>
                     </div>
                 </div>
                 {statsDisp}
@@ -1325,7 +1368,7 @@ useEffect(() => {
             <div ref={editorPaneRef} className="flex flex-col border-b overflow-hidden bg-muted/30" style={{ height: `${editorPaneHeight}px` }}>
                 {/* ... (Top bar: SQL Editor title, AI Assist toggle, Run Query button - remain unchanged) ... */}
                 <div className="p-1.5 pl-3 bg-background border-b flex justify-between items-center h-9 flex-shrink-0">
-                     <div className="flex items-center gap-2"> <span className="font-medium text-sm flex items-center gap-1.5 text-foreground"><Code className="h-4 w-4 text-primary"/> SQL Editor</span> <TooltipProvider><Tooltip><TooltipTrigger asChild><Button variant={showNlSection ? "secondary" : "ghost"} size="xs" className="h-6 px-2" onClick={() => setShowNlSection(!showNlSection)}><BrainCircuit className="h-3.5 w-3.5 mr-1"/> AI Assist</Button></TooltipTrigger><TooltipContent>Toggle AI Query Builder</TooltipContent></Tooltip></TooltipProvider> </div>
+                     <div className="flex items-center gap-2"> <span className="font-medium text-sm flex items-center gap-1.5 text-foreground"><Code className="h-4 w-4 text-primary"/> SQL Editor</span> <TooltipProvider><Tooltip><TooltipTrigger asChild><Button variant={showNlSection ? "secondary" : "ghost"} size="sm" className="h-6 px-2" onClick={() => setShowNlSection(!showNlSection)}><BrainCircuit className="h-3.5 w-3.5 mr-1"/> AI Assist</Button></TooltipTrigger><TooltipContent>Toggle AI Query Builder</TooltipContent></Tooltip></TooltipProvider> </div>
                      <Button onClick={submitSqlJob} disabled={isRunningJob || !sql.trim()} size="sm" className="h-7">{isRunningJob ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin"/> : null} Run Query</Button>
                 </div>
 
@@ -1449,7 +1492,7 @@ useEffect(() => {
                              <Sparkles className="h-4 w-4 text-primary"/> AI Generated Summary
                          </h3>
                          <Button
-                             variant="outline" size="xs"
+                             variant="outline" size="sm"
                              onClick={fetchAiSummary}
                              className="h-7"
                              disabled={loadingAiSummary}
@@ -1648,13 +1691,13 @@ useEffect(() => {
                         </div>
                          {/* Action Buttons */}
                          <div className="flex gap-1">
-                            <Button variant="outline" size="xs" onClick={submitSqlJob} className="h-7"><RefreshCw className="mr-1 h-3 w-3"/>Run Again</Button>
+                            <Button variant="outline" size="sm" onClick={submitSqlJob} className="h-7"><RefreshCw className="mr-1 h-3 w-3"/>Run Again</Button>
                             {/* Replace previous Download button or add new one */}
                             <Tooltip>
                                 <TooltipTrigger asChild>
                                      <Button
                                          variant="outline"
-                                         size="xs"
+                                         size="sm"
                                          onClick={handleExcelDownload}
                                          disabled={!jobId || isDownloadingExcel || isRunningJob || !!jobError} // Disable if no job, downloading, running, or error
                                          className="h-7"
@@ -1685,7 +1728,7 @@ useEffect(() => {
                                 {suggestedCharts.map((suggestion, index) => (
                                     <Button
                                         key={`${suggestion.chart_type}-${index}`}
-                                        variant="outline" size="xs" className="h-6 text-xs"
+                                        variant="outline" size="sm" className="h-6 text-xs"
                                         onClick={() => {
                                             // Check if the target viz is valid with current filters *before* switching
                                             const { x_axis_column, y_axis_columns } = suggestion;
@@ -1845,7 +1888,7 @@ useEffect(() => {
                          <ResponsiveContainer width="100%" height="100%">
                              <PieChart>
                                  <Pie data={formattedDataPie} cx="50%" cy="50%" labelLine={false} outerRadius="80%" fill="#8884d8" dataKey="value" nameKey="name" label={{ fontSize: 10, fill: 'hsl(var(--foreground))' }}>
-                                     {formattedDataPie.map((entry, index) => ( <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} /> ))}
+                                     {formattedDataPie.map((_, index) => ( <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} /> ))}
                                  </Pie>
                                  <RechartsTooltip contentStyle={{ background: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', borderRadius: 'var(--radius)', fontSize: '12px', color: 'hsl(var(--foreground))' }}/>
                                  <Legend wrapperStyle={{ fontSize: '11px' }}/>
