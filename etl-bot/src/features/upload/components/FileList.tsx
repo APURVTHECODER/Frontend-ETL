@@ -1,5 +1,4 @@
 // src/features/upload/components/FileList.tsx
-import React from 'react'; // Import React if not already
 import { FileItem } from './FileItem';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
