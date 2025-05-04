@@ -176,25 +176,25 @@ const BigQueryTableViewer: React.FC = () => {
 
 
     // --- Utility Functions (Keep existing ones) ---
-    const extractTableNames = useCallback((sql: string): string[] => {
-        // Regex to find fully qualified tables (project.dataset.table) after FROM or JOIN
-        // Handles optional backticks around the full name or individual parts
-        const regex = /(?:FROM|JOIN)\s+`?((?:`?[a-zA-Z0-9_.-]+`?\.)+(?:`?[a-zA-Z0-9_-]+`?))`?/gi;
-        const matches = sql.matchAll(regex);
-        const tables = new Set<string>();
-        for (const match of matches) {
-            if (match[1]) {
-                // Remove all backticks and normalize
-                const tableName = match[1].replace(/`/g, '').toLowerCase();
-                // Basic validation for structure
-                if (tableName.split('.').length >= 3) {
-                     tables.add(tableName);
-                }
-            }
-        }
-        console.log("Extracted source tables for export:", Array.from(tables));
-        return Array.from(tables);
-    }, []);
+    // const extractTableNames = useCallback((sql: string): string[] => {
+    //     // Regex to find fully qualified tables (project.dataset.table) after FROM or JOIN
+    //     // Handles optional backticks around the full name or individual parts
+    //     const regex = /(?:FROM|JOIN)\s+`?((?:`?[a-zA-Z0-9_.-]+`?\.)+(?:`?[a-zA-Z0-9_-]+`?))`?/gi;
+    //     const matches = sql.matchAll(regex);
+    //     const tables = new Set<string>();
+    //     for (const match of matches) {
+    //         if (match[1]) {
+    //             // Remove all backticks and normalize
+    //             const tableName = match[1].replace(/`/g, '').toLowerCase();
+    //             // Basic validation for structure
+    //             if (tableName.split('.').length >= 3) {
+    //                  tables.add(tableName);
+    //             }
+    //         }
+    //     }
+    //     console.log("Extracted source tables for export:", Array.from(tables));
+    //     return Array.from(tables);
+    // }, []);
 
     const getErrorMessage = useCallback((error: any): string => { 
         {
