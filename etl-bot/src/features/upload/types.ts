@@ -15,6 +15,7 @@ export interface ETLFile {
   errorMessage: string | null;
   // Optional: Store the GCS object name if needed later
   gcsObjectName?: string;
+  targetDatasetId: string;
 }
 
 // Keep HistoryItem if used by UploadHistory, adjust if needed

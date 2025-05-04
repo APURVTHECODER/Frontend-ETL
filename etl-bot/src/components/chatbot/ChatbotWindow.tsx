@@ -4,10 +4,9 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Send, X, Bot, User, Loader2 } from 'lucide-react';
 import axiosInstance from '@/lib/axios-instance'; // Use your configured axios instance
-import { AxiosError } from 'axios';
 
 interface Message {
   id: string;
@@ -49,7 +48,7 @@ export const ChatbotWindow: React.FC<ChatbotWindowProps> = ({ isOpen, onClose })
 
 
   const getErrorMessage = useCallback((error: any): string => {
-      if (error instanceof AxiosError) {
+     if (error instanceof (error as any).isAxiosError) {
           const data = error.response?.data;
           if (data && typeof data === 'object' && 'detail' in data) {
               return String(data.detail);
