@@ -266,29 +266,27 @@ const BigQueryTableViewer: React.FC = () => {
                 const handleExcelDownload = useCallback(async () => {
                     if (!jobId || !sql || !jobLocation) {
                         console.error("Missing Job ID, SQL, or Location for download.");
-                        // TODO: Show a user-facing error (e.g., using a toast library)
+                        toast({ variant: "destructive", title: "Download Error", description: "Cannot download report: Missing required job info." });
                         return;
                     }
-            
+                
                     setIsDownloadingExcel(true);
-                    // Optional: Show a toast notification that download has started
-            
+                    toast({ title: "Preparing Download...", description: "Generating Excel report...", duration: 2000 });
+                
                     try {
-                        const sourceTables = extractTableNames(sql);
-            
-                        console.log(`Requesting Excel export for Job: ${jobId}, Location: ${jobLocation}, Tables:`, sourceTables);
-            
+                        // const sourceTables = extractTableNames(sql); // Keep if needed for logging/context
+                        // console.log(`Requesting Excel export for Job: ${jobId}, Location: ${jobLocation}, Tables:`, sourceTables);
+                
                         const response = await axiosInstance.post('/api/export/query-to-excel', {
                             job_id: jobId,
                             sql: sql,
-                            location: jobLocation, // Send location if needed by backend logic
-                            // Note: We are not sending source_tables explicitly as the backend extracts them
+                            location: jobLocation,
                         }, {
-                            responseType: 'blob', // Crucial for receiving file data
+                            responseType: 'blob', // Crucial: ensures response.data is a Blob
                         });
-            
-                        // Extract filename from Content-Disposition header if available
-                        let filename = `query_export_${jobId.substring(0, 8)}.xlsx`; // Default filename
+                
+                        // Extract filename
+                        let filename = `query_export_${jobId.substring(0, 8)}.xlsx`;
                         const contentDisposition = response.headers['content-disposition'];
                         if (contentDisposition) {
                             const filenameMatch = contentDisposition.match(/filename="?([^"]+)"?/);
@@ -296,22 +294,22 @@ const BigQueryTableViewer: React.FC = () => {
                                 filename = filenameMatch[1];
                             }
                         }
-            
-                        // Use file-saver to trigger the download
-                        saveAs(filename);
-                        toast({ title: "Download Successfull.", variant: "successfull" });
-                        // Optional: Show a success toast
-            
+                
+                        // --- Use file-saver correctly ---
+                        // Pass the Blob (response.data) as the first argument
+                        saveAs(response.data, filename);
+                
+                        toast({ title: "Download Started", description: `Report "${filename}" should begin downloading.`, variant: "default" }); // Use "success" variant
+                
                     } catch (error: any) {
                         console.error("Excel download failed:", error);
-                        const errorMessage = getErrorMessage(error);
-                        // TODO: Show user-facing error toast with `errorMessage`
-                        alert(`Failed to download report: ${errorMessage}`); // Simple alert for now
+                        const errorMessage = getErrorMessage(error); // Ensure you have this helper
+                        toast({ variant: "destructive", title: "Download Failed", description: errorMessage });
                     } finally {
                         setIsDownloadingExcel(false);
                     }
-                }, [jobId, sql, jobLocation, extractTableNames, getErrorMessage]); // Added dependencies
-
+                    // Ensure all dependencies used inside are listed correctly
+                }, [jobId, sql, jobLocation, toast, getErrorMessage, setIsDownloadingExcel]);
 
     // submitSqlJob: Mostly unchanged, clears previous results
     
