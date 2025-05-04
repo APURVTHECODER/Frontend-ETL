@@ -84,7 +84,6 @@ export function FileItem({ file, onRemove, disabled = false }: FileItemProps) {
           <Progress
             value={file.progress}
             className="h-1 mt-1.5 bg-muted" // Use theme background
-            indicatorClassName="bg-blue-500" // Use a specific color for progress
           />
         )}
          {/* Optional: Show full error message on hover or in tooltip */}

@@ -1,9 +1,10 @@
 import axios from 'axios';
 import { auth } from '@/firebase-config'; // Your initialized auth instance
 import { getIdToken } from 'firebase/auth';
-
+import { signOut } from 'firebase/auth';
+const baseURL = import.meta.env.VITE_API_BASE_URL || '/';
 const axiosInstance = axios.create({
-    baseURL: 'http://localhost:8000', // Your API base URL prefix if applicable
+    baseURL, // Your API base URL prefix if applicable
     // other default settings...
 });
 
@@ -15,8 +16,8 @@ axiosInstance.interceptors.request.use(
             try {
                 const token = await getIdToken(currentUser);
                 if (token) {
+                    config.headers = config.headers || {}; // Initialize if undefined
                     config.headers.Authorization = `Bearer ${token}`;
-                    console.log("Attaching token to request:", config.url);
                 }
             } catch (error) {
                 console.error("Error getting token for request:", error);

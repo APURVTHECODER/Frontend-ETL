@@ -11,7 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { X, ListFilter, Calendar as CalendarIcon } from 'lucide-react';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"; // Basic select
+import { FilterType } from './filterTypes';
 import { Checkbox } from "@/components/ui/checkbox"; // For multi-select simulation
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -40,7 +40,6 @@ const CategoricalFilter: React.FC<{
     onChange: (selected: string[]) => void;
 }> = ({ config, value, onChange }) => {
     const options = config.options || [];
-    const MAX_OPTIONS_DISPLAY = 10; // Show limited options initially
 
     const handleCheckboxChange = (option: string, checked: boolean) => {
         const newSelected = checked
@@ -52,7 +51,7 @@ const CategoricalFilter: React.FC<{
     return (
         <Popover>
             <PopoverTrigger asChild>
-                <Button variant="outline" size="sm" className="w-full justify-start text-xs h-8">
+                <Button variant="outline" size="sm" className="w-full justify-start text-sm h-8">
                     {value.length === 0
                         ? `Select ${config.label}...`
                         : value.length === 1
@@ -62,11 +61,11 @@ const CategoricalFilter: React.FC<{
             </PopoverTrigger>
             <PopoverContent className="w-auto p-0" align="start">
                 <div className='p-2 border-b'>
-                     <p className='text-xs font-medium'>{config.label}</p>
+                     <p className='text-sm font-medium'>{config.label}</p>
                 </div>
                 <ScrollArea className="h-[200px] w-[200px]">
                     <div className="p-2 space-y-1.5">
-                        {options.length === 0 && <p className="text-xs text-muted-foreground p-2 text-center">No options</p>}
+                        {options.length === 0 && <p className="text-sm text-muted-foreground p-2 text-center">No options</p>}
                         {options.map((option) => (
                             <div key={option} className="flex items-center space-x-2">
                                 <Checkbox
@@ -77,7 +76,7 @@ const CategoricalFilter: React.FC<{
                                 />
                                 <Label
                                     htmlFor={`${config.columnName}-${option}`}
-                                    className="text-xs font-normal truncate"
+                                    className="text-sm font-normal truncate"
                                     title={option}
                                 >
                                     {option || <i className='text-muted-foreground'>(empty)</i>}
@@ -88,7 +87,7 @@ const CategoricalFilter: React.FC<{
                 </ScrollArea>
                  {value.length > 0 && (
                     <div className="p-1 border-t">
-                        <Button variant="ghost" size="xs" className="w-full h-6 text-xs" onClick={() => onChange([])}>
+                        <Button variant="ghost" size="sm" className="w-full h-6 text-sm" onClick={() => onChange([])}>
                             Clear Selection
                         </Button>
                     </div>
@@ -137,7 +136,7 @@ const DateRangeFilter: React.FC<{
                 <Button
                     variant={"outline"}
                     size="sm"
-                    className="w-full justify-start text-left font-normal h-8 text-xs"
+                    className="w-full justify-start text-left font-normal h-8 text-sm"
                 >
                     <CalendarIcon className="mr-2 h-3.5 w-3.5" />
                     {value.start && value.end
@@ -161,13 +160,17 @@ const DateRangeFilter: React.FC<{
                     numberOfMonths={2}
                     fromDate={fromDate}
                     toDate={toDate}
-                    disabled={!fromDate && !toDate ? undefined : (date) => // Disable dates outside the data range
-                         (fromDate && date < fromDate) || (toDate && date > toDate)
-                    }
+                    disabled={!fromDate && !toDate ? undefined : (date: Date) => {
+                        // Your logic to determine if date is disabled
+                        // Ensure this logic always returns true or false
+                        const isBefore = fromDate ? date < fromDate : false;
+                        const isAfter = toDate ? date > toDate : false;
+                        return isBefore || isAfter; // Example: always return boolean
+                    }}
                 />
                 <div className="p-2 border-t flex justify-between items-center">
-                    <Button variant="ghost" size="xs" onClick={handleClear} disabled={!value.start && !value.end}>Clear</Button>
-                    <Button size="xs" onClick={handleApply}>Apply</Button>
+                    <Button variant="ghost" size="sm" onClick={handleClear} disabled={!value.start && !value.end}>Clear</Button>
+                    <Button size="sm" onClick={handleApply}>Apply</Button>
                 </div>
             </PopoverContent>
         </Popover>
@@ -205,20 +208,20 @@ const NumericRangeFilter: React.FC<{
                 placeholder={`Min (${config.min?.toLocaleString() ?? 'any'})`}
                 value={minVal}
                 onChange={handleMinChange}
-                className="h-8 text-xs"
-                min={config.min ?? undefined}
-                max={config.max ?? undefined}
+                className="h-8 text-sm"
+                min={config.min instanceof Date ? config.min.toISOString().split('T')[0] : config.min ?? undefined}
+                max={config.max instanceof Date ? config.max.toISOString().split('T')[0] : config.max ?? undefined}
                 step="any" // Allow decimals
              />
-             <span className='text-muted-foreground text-xs'>-</span>
+             <span className='text-muted-foreground text-sm'>-</span>
             <Input
                 type="number"
                 placeholder={`Max (${config.max?.toLocaleString() ?? 'any'})`}
                 value={maxVal}
                 onChange={handleMaxChange}
-                className="h-8 text-xs"
-                min={config.min ?? undefined}
-                max={config.max ?? undefined}
+                className="h-8 text-sm"
+                min={config.min instanceof Date ? config.min.toISOString().split('T')[0] : config.min ?? undefined}
+                max={config.max instanceof Date ? config.max.toISOString().split('T')[0] : config.max ?? undefined}
                 step="any"
             />
         </div>
@@ -236,7 +239,7 @@ const TextSearchFilter: React.FC<{
             placeholder={`Search ${config.label}...`}
             value={value}
             onChange={(e) => onChange(e.target.value)}
-            className="h-8 text-xs"
+            className="h-8 text-sm"
         />
     );
 };
@@ -311,7 +314,7 @@ export const FilterControls: React.FC<FilterControlsProps> = ({
                     />
                 );
             default:
-                return <p className='text-xs text-red-500'>Unsupported filter type</p>;
+                return <p className='text-sm text-red-500'>Unsupported filter type</p>;
         }
     };
 
@@ -330,7 +333,7 @@ export const FilterControls: React.FC<FilterControlsProps> = ({
                                 Filters
                                {activeFilterCount > 0 && <Badge variant="secondary" className='ml-1'>{activeFilterCount}</Badge>}
                             </div>
-                            <div className='text-xs text-muted-foreground'>
+                            <div className='text-sm text-muted-foreground'>
                                 {activeFilterCount > 0 ? `${filteredCount.toLocaleString()} / ${resultsCount.toLocaleString()} rows` : `${resultsCount.toLocaleString()} rows`}
                             </div>
                        </div>
@@ -339,7 +342,7 @@ export const FilterControls: React.FC<FilterControlsProps> = ({
                         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-x-3 gap-y-2.5 mb-2 px-1">
                             {availableFilters.map((config) => (
                                 <div key={config.columnName}>
-                                    <Label className="text-xs font-medium mb-1 block" htmlFor={config.columnName}>
+                                    <Label className="text-sm font-medium mb-1 block" htmlFor={config.columnName}>
                                         {config.label}
                                         {isFilterActive(config.columnName, activeFilters) && <span className='text-primary ml-1'>*</span>}
                                     </Label>
@@ -349,7 +352,7 @@ export const FilterControls: React.FC<FilterControlsProps> = ({
                         </div>
                          {activeFilterCount > 0 && (
                             <div className='flex justify-end px-1 mt-1'>
-                                <Button variant="ghost" size="sm" onClick={onClearAllFilters} className='text-xs h-7'>
+                                <Button variant="ghost" size="sm" onClick={onClearAllFilters} className='text-sm h-7'>
                                     <X className="mr-1 h-3.5 w-3.5" /> Clear All Filters
                                 </Button>
                             </div>

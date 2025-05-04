@@ -18,7 +18,6 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Loader2, PlusCircle, AlertCircle } from 'lucide-react';
 import axiosInstance from '@/lib/axios-instance';
 import { useToast } from "@/hooks/use-toast";
-import axios from 'axios';
 
 interface CreateDatasetProps {
   onDatasetCreated: () => void;
@@ -87,7 +86,7 @@ export function CreateDataset({ onDatasetCreated, defaultLocation = "US" }: Crea
     } catch (err: any) {
       console.error("Error creating dataset:", err);
       let message = "Failed to create dataset.";
-      if (axios.isAxiosError(err)) {
+      if ((err as any).isAxiosError) {
         if (err.response?.status === 409) {
           message = `Dataset "${newDatasetId}" already exists.`;
         } else {
@@ -112,7 +111,7 @@ export function CreateDataset({ onDatasetCreated, defaultLocation = "US" }: Crea
       <DialogTrigger asChild>
         <Button variant="outline" size="sm" className="flex items-center gap-2">
           <PlusCircle className="h-4 w-4" />
-          Create New Dataset
+          Create Workspace
         </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-[500px]">
