@@ -5,7 +5,7 @@ on:
     branches: [ "*" ]
   pull_request:
     branches: [ "*" ]
-    
+
 env:
   # --- Configuration - MUST MATCH your setup ---
   GCP_PROJECT_ID: crafty-tracker-457215-g6
