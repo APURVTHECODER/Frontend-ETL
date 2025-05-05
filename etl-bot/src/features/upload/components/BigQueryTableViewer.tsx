@@ -12,10 +12,10 @@ import {
     Code, Table2, RefreshCw, ChevronLeft, ChevronRight, ChevronsLeft,
     ChevronsRight, SortAsc, SortDesc, ArrowUpDown, Info,
     BarChart4,
-    LineChart as LineChartIcon, PieChart as PieChartIcon, Dot , Trash2 , GripVertical ,History,Copy,
+    LineChart as LineChartIcon, PieChart as PieChartIcon, Dot , Trash2 ,History,Copy,
     ListFilter, // Added Filter icon
     MessageSquare,X,
-    FileSpreadsheet, Clock ,Sparkles
+    FileSpreadsheet, Clock ,Sparkles , LightbulbIcon , AlertCircle , Play
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast"
 import {
@@ -158,7 +158,12 @@ const BigQueryTableViewer: React.FC = () => {
     // --- State for Filters ---
     const [availableFilters, setAvailableFilters] = useState<FilterConfig[]>([]);
     const [activeFilters, setActiveFilters] = useState<ActiveFilters>({});
-
+    const [promptSuggestions, setPromptSuggestions] = useState<string[]>([]);
+    const [isLoadingSuggestions, setIsLoadingSuggestions] = useState<boolean>(false);
+    const [showSuggestions, setShowSuggestions] = useState<boolean>(false);
+    const suggestionTimeoutRef = useRef<NodeJS.Timeout | null>(null); // For debouncing
+    const suggestionContainerRef = useRef<HTMLDivElement>(null); // Ref for the suggestions dropdown
+    const promptInputRef = useRef<HTMLInputElement>(null); // Ref for the prompt input
 
     // --- Refs ---
     const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -195,7 +200,109 @@ const BigQueryTableViewer: React.FC = () => {
     //     console.log("Extracted source tables for export:", Array.from(tables));
     //     return Array.from(tables);
     // }, []);
+// Inside BigQueryTableViewer component
 
+// ... other functions like fetchTables, submitSqlJob etc ...
+
+// +++ Function to Fetch Prompt Suggestions +++
+const fetchPromptSuggestions = useCallback(async (currentPrompt: string) => {
+    if (currentPrompt.trim().length < 3) { // Minimum length to trigger suggestions
+        setPromptSuggestions([]);
+        setShowSuggestions(false);
+        setIsLoadingSuggestions(false);
+        return;
+    }
+
+    console.log("Fetching suggestions for:", currentPrompt);
+    setIsLoadingSuggestions(true);
+    // Keep suggestions visible while loading new ones, maybe show loader inside
+    // setShowSuggestions(false); // Optionally hide immediately
+
+    try {
+        const response = await axiosInstance.post<{ suggestions: string[], error?: string }>('/api/bigquery/suggest-prompt', {
+            current_prompt: currentPrompt,
+        });
+
+        if (response.data.error) {
+            console.warn("Prompt suggestion error:", response.data.error);
+            setPromptSuggestions([]);
+            setShowSuggestions(false);
+        } else {
+            setPromptSuggestions(response.data.suggestions || []);
+            setShowSuggestions((response.data.suggestions || []).length > 0); // Show only if suggestions exist
+        }
+
+    } catch (error: any) {
+        console.error("Failed to fetch prompt suggestions:", error);
+        setPromptSuggestions([]); // Clear suggestions on error
+        setShowSuggestions(false);
+    } finally {
+        setIsLoadingSuggestions(false);
+    }
+}, []); // Dependency array is empty as it uses state setters and useCallback
+
+// +++ Handle Prompt Input Change with Debouncing +++
+const handlePromptChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const newPrompt = e.target.value;
+    setNlPrompt(newPrompt);
+    setNlError(""); // Clear NL error on type
+
+    // Clear existing debounce timeout
+    if (suggestionTimeoutRef.current) {
+        clearTimeout(suggestionTimeoutRef.current);
+    }
+
+    // Hide suggestions while typing and set new timeout
+    setShowSuggestions(false);
+    setIsLoadingSuggestions(false); // Reset loading if user types again quickly
+    setPromptSuggestions([]); // Clear old suggestions immediately
+
+
+    if (newPrompt.trim().length >= 3) { // Only set timeout if prompt is long enough
+        suggestionTimeoutRef.current = setTimeout(() => {
+            fetchPromptSuggestions(newPrompt);
+        }, 500); // 500ms debounce delay
+    }
+
+}, [fetchPromptSuggestions]); // Depends on fetchPromptSuggestions
+
+// +++ Handle Suggestion Selection +++
+const handleSuggestionClick = useCallback((suggestion: string) => {
+    setNlPrompt(suggestion); // Update prompt input
+    setShowSuggestions(false); // Hide suggestions
+    setPromptSuggestions([]); // Clear suggestions
+    if (suggestionTimeoutRef.current) { // Clear any pending fetch
+        clearTimeout(suggestionTimeoutRef.current);
+    }
+    promptInputRef.current?.focus(); // Optional: refocus the input
+}, []);
+
+// +++ Handle Clicking Outside to Hide Suggestions +++
+useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+        // Check if click is outside the suggestions container AND outside the prompt input
+        if (
+            suggestionContainerRef.current &&
+            !suggestionContainerRef.current.contains(event.target as Node) &&
+            promptInputRef.current &&
+            !promptInputRef.current.contains(event.target as Node)
+        ) {
+            setShowSuggestions(false);
+        }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+        document.removeEventListener('mousedown', handleClickOutside);
+        // Clear timeout on unmount
+        if (suggestionTimeoutRef.current) {
+            clearTimeout(suggestionTimeoutRef.current);
+        }
+    };
+}, []); // Empty dependency array, runs once
+
+
+// ... rest of the component ...
     const getErrorMessage = useCallback((error: any): string => { 
         {
             const d=error.response?.data; if(d && typeof d==='object' && 'detail' in d)return String(d.detail);
@@ -1359,30 +1466,135 @@ useEffect(() => {
         );
     };
 
+// Inside BigQueryTableViewer component -> renderEditorPane function
 
-    // --- MODIFIED renderEditorPane function ---
-    const renderEditorPane = () => {
-        return (
-            <div ref={editorPaneRef} className="flex flex-col border-b overflow-hidden bg-muted/30" style={{ height: `${editorPaneHeight}px` }}>
-                {/* ... (Top bar: SQL Editor title, AI Assist toggle, Run Query button - remain unchanged) ... */}
-                <div className="p-1.5 pl-3 bg-background border-b flex justify-between items-center h-9 flex-shrink-0">
-                     <div className="flex items-center gap-2"> <span className="font-medium text-sm flex items-center gap-1.5 text-foreground"><Code className="h-4 w-4 text-primary"/> SQL Editor</span> <TooltipProvider><Tooltip><TooltipTrigger asChild><Button variant={showNlSection ? "secondary" : "ghost"} size="sm" className="h-6 px-2" onClick={() => setShowNlSection(!showNlSection)}><BrainCircuit className="h-3.5 w-3.5 mr-1"/> AI Assist</Button></TooltipTrigger><TooltipContent>Toggle AI Query Builder</TooltipContent></Tooltip></TooltipProvider> </div>
-                     <Button onClick={submitSqlJob} disabled={isRunningJob || !sql.trim()} size="sm" className="h-7">{isRunningJob ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin"/> : null} Run Query</Button>
+const renderEditorPane = () => {
+    return (
+        <div 
+            ref={editorPaneRef} 
+            className="flex flex-col border border-border rounded-md shadow-sm overflow-hidden bg-muted/20" 
+            style={{ height: `${editorPaneHeight}px` }}
+        >
+            {/* Top bar: SQL Editor title, AI Assist toggle, Run Query button */}
+            <div className="px-3 py-2 bg-background border-b border-border flex justify-between items-center h-10 flex-shrink-0">
+                <div className="flex items-center gap-3">
+                    <span className="font-medium text-sm flex items-center gap-1.5 text-foreground">
+                        <Code className="h-4 w-4 text-primary"/> 
+                        <span>SQL Editor</span>
+                    </span>
+                    <TooltipProvider>
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <Button 
+                                    variant={showNlSection ? "secondary" : "ghost"} 
+                                    size="sm" 
+                                    className="h-7 px-2.5 transition-colors duration-200" 
+                                    onClick={() => setShowNlSection(!showNlSection)}
+                                >
+                                    <BrainCircuit className="h-3.5 w-3.5 mr-1.5"/> 
+                                    <span>AI Assist</span>
+                                </Button>
+                            </TooltipTrigger>
+                            <TooltipContent side="bottom" className="text-xs">Toggle AI Query Builder</TooltipContent>
+                        </Tooltip>
+                    </TooltipProvider>
                 </div>
+                <Button 
+                    onClick={submitSqlJob} 
+                    disabled={isRunningJob || !sql.trim()} 
+                    size="sm" 
+                    className="h-7 px-3 font-medium transition-colors"
+                >
+                    {isRunningJob ? (
+                        <Loader2 className="mr-1.5 h-4 w-4 animate-spin"/> 
+                    ) : (
+                        <Play className="mr-1.5 h-3.5 w-3.5" />
+                    )} 
+                    Run Query
+                </Button>
+            </div>
 
-                {/* AI Assist Section (remains unchanged from previous step) */}
-                {showNlSection && (
-                    <div className="p-2 bg-background border-b flex-shrink-0">
-                         <div className="flex gap-2 items-center">
-                            <Input placeholder={selectedTableId ? "Describe query..." : "Select table for AI..."} value={nlPrompt} onChange={(e)=>setNlPrompt(e.target.value)} className="flex-grow text-xs h-7" disabled={generatingSql || !selectedTableId} title={!selectedTableId ? "Select table first." : ""} />
-                            <Button onClick={handleGenerateSql} disabled={!nlPrompt.trim() || generatingSql || !selectedTableId} size="sm" variant="secondary" className="text-xs h-7">{generatingSql?<Loader2 className="mr-1.5 h-3 w-3 animate-spin"/>:<BrainCircuit className="mr-1.5 h-3 w-3"/>} Generate</Button>
-                         </div>
-                         {nlError && <p className="text-xs text-destructive mt-1 px-1">{nlError}</p>}
+            {/* AI Assist Section */}
+            {showNlSection && (
+                <div className="p-3 bg-background/50 border-b border-border flex-shrink-0 relative"> 
+                    <div className="flex gap-2 items-center">
+                        <div className="relative flex-grow">
+                            <Input
+                                ref={promptInputRef}
+                                placeholder={selectedTableId ? "Describe query in plain language..." : "Select table for AI assistance..."}
+                                value={nlPrompt}
+                                onChange={handlePromptChange}
+                                onFocus={() => {
+                                    if (promptSuggestions.length > 0) {
+                                        setShowSuggestions(true);
+                                    }
+                                }}
+                                className="flex-grow text-xs h-8 pl-7 focus:ring-1 focus:ring-primary/30"
+                                disabled={generatingSql || !selectedTableId}
+                                title={!selectedTableId ? "Select table first." : ""}
+                                autoComplete="off"
+                            />
+                            <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                        </div>
+                        <Button 
+                            onClick={handleGenerateSql} 
+                            disabled={!nlPrompt.trim() || generatingSql || !selectedTableId} 
+                            size="sm" 
+                            variant="secondary" 
+                            className="text-xs h-8 px-3 whitespace-nowrap transition-all hover:bg-primary hover:text-primary-foreground"
+                        >
+                            {generatingSql ? (
+                                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin"/>
+                            ) : (
+                                <BrainCircuit className="mr-1.5 h-3.5 w-3.5"/>
+                            )} 
+                            Generate SQL
+                        </Button>
                     </div>
-                )}
+                    {nlError && (
+                        <p className="text-xs text-destructive mt-2 px-1 flex items-center">
+                            <AlertCircle className="h-3 w-3 mr-1" /> {nlError}
+                        </p>
+                    )}
 
-                 {/* Monaco Editor Area */}
-                 <div className="flex-grow relative bg-background">
+                    {/* Suggestions Dropdown */}
+                    {showSuggestions && (
+                        <div
+                            ref={suggestionContainerRef}
+                            className="absolute top-full left-3 right-3 mt-1 z-50 bg-popover border border-border rounded-md shadow-md max-h-48 overflow-y-auto"
+                        >
+                            {isLoadingSuggestions ? (
+                                <div className="p-3 text-xs text-muted-foreground flex items-center justify-center">
+                                    <Loader2 className="h-3.5 w-3.5 animate-spin mr-2" /> Loading suggestions...
+                                </div>
+                            ) : promptSuggestions.length > 0 ? (
+                                <ul className="py-1">
+                                    {promptSuggestions.map((suggestion, index) => (
+                                        <li key={index}>
+                                            <button
+                                                onClick={() => handleSuggestionClick(suggestion)}
+                                                className="w-full text-left px-3 py-2 text-xs text-popover-foreground hover:bg-muted transition-colors flex items-center"
+                                            >
+                                                <LightbulbIcon className="h-3 w-3 mr-2 text-primary" />
+                                                {suggestion}
+                                            </button>
+                                        </li>
+                                    ))}
+                                </ul>
+                            ) : (
+                                !isLoadingSuggestions && (
+                                    <div className="p-3 text-xs text-muted-foreground text-center">
+                                        <span className="italic">No suggestions found.</span>
+                                    </div>
+                                )
+                            )}
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {/* Monaco Editor Area */}
+            <div className="flex-grow relative bg-background">
                      {/* --- START specific modification --- */}
                      <Editor
                         language="sql"
@@ -1406,13 +1618,70 @@ useEffect(() => {
                     {/* --- END specific modification --- */}
                  </div>
 
-                 {/* Resize Handle (remains unchanged) */}
-                <div ref={resizeHandleRef} onMouseDown={startResizing} className="h-1.5 bg-border hover:bg-primary cursor-ns-resize flex-shrink-0 flex items-center justify-center transition-colors">
-                    <GripVertical className="h-2.5 w-2.5 text-muted-foreground" />
-                 </div>
+            {/* Resize Handle */}
+            <div 
+                ref={resizeHandleRef} 
+                onMouseDown={startResizing} 
+                className="h-2 bg-background hover:bg-primary/20 cursor-ns-resize flex-shrink-0 flex items-center justify-center transition-colors"
+            >
+                <div className="w-12 h-1 bg-border rounded-full hover:bg-primary transition-colors" />
             </div>
-        );
-    };
+        </div>
+    );
+};
+    // --- MODIFIED renderEditorPane function ---
+    // const renderEditorPane = () => {
+    //     return (
+    //         <div ref={editorPaneRef} className="flex flex-col border-b overflow-hidden bg-muted/30" style={{ height: `${editorPaneHeight}px` }}>
+    //             {/* ... (Top bar: SQL Editor title, AI Assist toggle, Run Query button - remain unchanged) ... */}
+    //             <div className="p-1.5 pl-3 bg-background border-b flex justify-between items-center h-9 flex-shrink-0">
+    //                  <div className="flex items-center gap-2"> <span className="font-medium text-sm flex items-center gap-1.5 text-foreground"><Code className="h-4 w-4 text-primary"/> SQL Editor</span> <TooltipProvider><Tooltip><TooltipTrigger asChild><Button variant={showNlSection ? "secondary" : "ghost"} size="sm" className="h-6 px-2" onClick={() => setShowNlSection(!showNlSection)}><BrainCircuit className="h-3.5 w-3.5 mr-1"/> AI Assist</Button></TooltipTrigger><TooltipContent>Toggle AI Query Builder</TooltipContent></Tooltip></TooltipProvider> </div>
+    //                  <Button onClick={submitSqlJob} disabled={isRunningJob || !sql.trim()} size="sm" className="h-7">{isRunningJob ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin"/> : null} Run Query</Button>
+    //             </div>
+
+    //             {/* AI Assist Section (remains unchanged from previous step) */}
+    //             {showNlSection && (
+    //                 <div className="p-2 bg-background border-b flex-shrink-0">
+    //                      <div className="flex gap-2 items-center">
+    //                         <Input placeholder={selectedTableId ? "Describe query..." : "Select table for AI..."} value={nlPrompt} onChange={(e)=>setNlPrompt(e.target.value)} className="flex-grow text-xs h-7" disabled={generatingSql || !selectedTableId} title={!selectedTableId ? "Select table first." : ""} />
+    //                         <Button onClick={handleGenerateSql} disabled={!nlPrompt.trim() || generatingSql || !selectedTableId} size="sm" variant="secondary" className="text-xs h-7">{generatingSql?<Loader2 className="mr-1.5 h-3 w-3 animate-spin"/>:<BrainCircuit className="mr-1.5 h-3 w-3"/>} Generate</Button>
+    //                      </div>
+    //                      {nlError && <p className="text-xs text-destructive mt-1 px-1">{nlError}</p>}
+    //                 </div>
+    //             )}
+
+    //              {/* Monaco Editor Area */}
+                //  <div className="flex-grow relative bg-background">
+                //      {/* --- START specific modification --- */}
+                //      <Editor
+                //         language="sql"
+                //         value={sql}
+                //         onChange={(value) => setSql(value || '')}
+                //         theme="vs-dark" // Consider theme options
+                //         options={{
+                //             minimap: { enabled: false },
+                //             fontSize: 13,
+                //             wordWrap: 'on',
+                //             scrollBeyondLastLine: false,
+                //             automaticLayout: true,
+                //             padding: { top: 8, bottom: 8 },
+                //             readOnly: !selectedTableId // <-- ADDED: Make read-only if no table selected
+                //         }}
+                //         // Add a visual cue when disabled (optional, but good UX)
+                //         // You might need to adjust wrapper styles if editor doesn't dim itself
+                //         // Example: className={!selectedTableId ? 'opacity-60 cursor-not-allowed' : ''}
+                //         loading={<div className="flex items-center justify-center h-full text-muted-foreground"><Loader2 className="h-5 w-5 animate-spin mr-2"/>Loading Editor...</div>}
+                //     />
+                //     {/* --- END specific modification --- */}
+                //  </div>
+
+    //              {/* Resize Handle (remains unchanged) */}
+    //             <div ref={resizeHandleRef} onMouseDown={startResizing} className="h-1.5 bg-border hover:bg-primary cursor-ns-resize flex-shrink-0 flex items-center justify-center transition-colors">
+    //                 <GripVertical className="h-2.5 w-2.5 text-muted-foreground" />
+    //              </div>
+    //         </div>
+    //     );
+    // };
 
 
 
