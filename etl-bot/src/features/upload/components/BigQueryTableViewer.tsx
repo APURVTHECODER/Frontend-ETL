@@ -1565,9 +1565,6 @@ useEffect(() => {
 // Inside BigQueryTableViewer component -> renderEditorPane function
 
 const renderEditorPane = () => {
-    // Inside renderEditorPane function
-
-// Helper to render the multi-select popover for Tables
     // Helper to render the multi-select popover for Tables
     const renderTableSelector = () => (
         <Popover open={isTablePopoverOpen} onOpenChange={setIsTablePopoverOpen}>
@@ -1576,21 +1573,21 @@ const renderEditorPane = () => {
                     variant="outline"
                     role="combobox"
                     aria-expanded={isTablePopoverOpen}
-                    className="w-[250px] justify-between text-xs h-7"
+                    className="w-[250px] justify-between text-xs h-8 transition-all duration-200 hover:border-primary/50 focus:ring-2 focus:ring-primary/20"
                     disabled={!tables || tables.length === 0}
                 >
-                     <span className="truncate">
-                       {selectedAiTables.size > 0
-                         ? `${selectedAiTables.size} table(s) selected`
-                         : "Select tables..."}
-                     </span>
-                     <ChevronsUpDown className="ml-2 h-3 w-3 shrink-0 opacity-50" />
-                 </Button>
+                    <span className="truncate font-medium">
+                        {selectedAiTables.size > 0
+                            ? `${selectedAiTables.size} table(s) selected`
+                            : "Select tables..."}
+                    </span>
+                    <ChevronsUpDown className="ml-2 h-3 w-3 shrink-0 opacity-50" />
+                </Button>
             </PopoverTrigger>
-            <PopoverContent className="w-[250px] p-0">
-                <Command>
-                    <CommandInput placeholder="Search tables..." className="h-8 text-xs" />
-                    <CommandList>
+            <PopoverContent className="w-[280px] p-0 shadow-lg border-primary/10">
+                <Command className="rounded-md">
+                    <CommandInput placeholder="Search tables..." className="h-9 text-xs font-medium" />
+                    <CommandList className="max-h-[200px]">
                         <CommandEmpty>No tables found.</CommandEmpty>
                         <CommandGroup>
                             {tables.map((table) => (
@@ -1608,28 +1605,29 @@ const renderEditorPane = () => {
                                             return next;
                                         });
                                     }}
-                                    className="text-xs"
+                                    className="text-xs py-2 hover:bg-primary/5 focus:bg-primary/10 cursor-pointer"
                                 >
-                                     <Check
+                                    <Check
                                         className={cn(
-                                            "mr-2 h-3 w-3",
+                                            "mr-2 h-3.5 w-3.5 text-primary",
                                             selectedAiTables.has(table.tableId) ? "opacity-100" : "opacity-0"
                                         )}
                                     />
-                                     {table.tableId}
-                                 </CommandItem>
+                                    <span className="font-medium truncate">{table.tableId}</span>
+                                </CommandItem>
                             ))}
                         </CommandGroup>
-                         {selectedAiTables.size > 0 && (
+                        {selectedAiTables.size > 0 && (
                             <>
-                                <CommandSeparator />
+                                <CommandSeparator className="my-1" />
                                 <CommandGroup>
                                     <CommandItem
                                         onSelect={() => {
                                             setSelectedAiTables(new Set());
                                         }}
-                                        className="text-xs text-destructive justify-center"
+                                        className="text-xs text-destructive justify-center py-2 hover:bg-destructive/5"
                                     >
+                                        <X className="h-3.5 w-3.5 mr-2" />
                                         Clear selection
                                     </CommandItem>
                                 </CommandGroup>
@@ -1645,25 +1643,25 @@ const renderEditorPane = () => {
     const renderColumnSelector = () => (
         <Popover open={isColumnPopoverOpen} onOpenChange={setIsColumnPopoverOpen}>
             <PopoverTrigger asChild>
-                 <Button
+                <Button
                     variant="outline"
                     role="combobox"
                     aria-expanded={isColumnPopoverOpen}
-                    className="w-[250px] justify-between text-xs h-7"
+                    className="w-[250px] justify-between text-xs h-8 transition-all duration-200 hover:border-primary/50 focus:ring-2 focus:ring-primary/20"
                     disabled={availableColumnsForSelection.length === 0}
                 >
-                     <span className="truncate">
+                    <span className="truncate font-medium">
                         {selectedAiColumns.size > 0
                             ? `${selectedAiColumns.size} column(s) selected`
                             : "Select columns (optional)..."}
-                     </span>
-                     <ChevronsUpDown className="ml-2 h-3 w-3 shrink-0 opacity-50" />
-                 </Button>
+                    </span>
+                    <ChevronsUpDown className="ml-2 h-3 w-3 shrink-0 opacity-50" />
+                </Button>
             </PopoverTrigger>
-            <PopoverContent className="w-[250px] p-0">
-                <Command>
-                    <CommandInput placeholder="Search columns..." className="h-8 text-xs" />
-                    <CommandList>
+            <PopoverContent className="w-[280px] p-0 shadow-lg border-primary/10">
+                <Command className="rounded-md">
+                    <CommandInput placeholder="Search columns..." className="h-9 text-xs font-medium" />
+                    <CommandList className="max-h-[200px]">
                         <CommandEmpty>No columns available.</CommandEmpty>
                         <CommandGroup>
                             {availableColumnsForSelection.map((col) => (
@@ -1681,29 +1679,30 @@ const renderEditorPane = () => {
                                             return next;
                                         });
                                     }}
-                                    className="text-xs"
+                                    className="text-xs py-2 hover:bg-primary/5 focus:bg-primary/10 cursor-pointer"
                                     title={col.label}
                                 >
                                     <Check
                                         className={cn(
-                                            "mr-2 h-3 w-3",
+                                            "mr-2 h-3.5 w-3.5 text-primary",
                                             selectedAiColumns.has(col.value) ? "opacity-100" : "opacity-0"
                                         )}
                                     />
-                                    <span className="truncate">{col.label}</span>
+                                    <span className="truncate font-medium">{col.label}</span>
                                 </CommandItem>
                             ))}
                         </CommandGroup>
                         {selectedAiColumns.size > 0 && (
                             <>
-                                <CommandSeparator />
+                                <CommandSeparator className="my-1" />
                                 <CommandGroup>
                                     <CommandItem
                                         onSelect={() => {
                                             setSelectedAiColumns(new Set());
                                         }}
-                                        className="text-xs text-destructive justify-center"
+                                        className="text-xs text-destructive justify-center py-2 hover:bg-destructive/5"
                                     >
+                                        <X className="h-3.5 w-3.5 mr-2" />
                                         Clear column selection
                                     </CommandItem>
                                 </CommandGroup>
@@ -1715,67 +1714,16 @@ const renderEditorPane = () => {
         </Popover>
     );
 
-// ... (rest of renderEditorPane return statement uses these helpers) ...
     return (
         <div 
             ref={editorPaneRef} 
-            className="flex flex-col border border-border rounded-md shadow-sm overflow-hidden bg-muted/20" 
+            className="flex flex-col border border-border rounded-lg shadow-md overflow-hidden bg-muted/10" 
             style={{ height: `${editorPaneHeight}px` }}
         >
-                             <Select
-                    value={aiMode}
-                    onValueChange={(value: 'AUTO' | 'SEMI_AUTO') => {
-                        setAiMode(value);
-                        if (value === 'AUTO') {
-                            setSelectedAiTables(new Set());
-                            setSelectedAiColumns(new Set());
-                        }
-                        console.log("AI Mode changed to:", value);
-                    }}
-                    disabled={generatingSql || !selectedDatasetId}
-                >
-                    <SelectTrigger className="w-[130px] h-8 text-xs flex-shrink-0">
-                        <SelectValue placeholder="AI Mode" />
-                    </SelectTrigger>
-                    <SelectContent>
-                        {/* SelectItem AUTO - Corrected TooltipTrigger */}
-                        <SelectItem value="AUTO" className="text-xs">
-                            <div className="flex items-center justify-between w-full">
-                                <div className="flex items-center gap-1.5"><CheckCheck className="h-3 w-3"/> AUTO</div>
-                                <TooltipProvider delayDuration={100}>
-                                    <Tooltip>
-                                        {/* --- CHANGE: Removed asChild --- */}
-                                        <TooltipTrigger onClick={(e) => e.stopPropagation()}>
-                                            <Info className="h-3 w-3 opacity-50 hover:opacity-100 cursor-help"/>
-                                        </TooltipTrigger>
-                                        {/* --- END CHANGE --- */}
-                                        <TooltipContent side="right" className="text-xs max-w-xs">AI considers all tables in the workspace.</TooltipContent>
-                                    </Tooltip>
-                                </TooltipProvider>
-                            </div>
-                        </SelectItem>
-                        {/* SelectItem SEMI-AUTO - Corrected TooltipTrigger */}
-                        <SelectItem value="SEMI_AUTO" className="text-xs">
-                           <div className="flex items-center justify-between w-full">
-                                <div className="flex items-center gap-1.5"><Settings2 className="h-3 w-3"/> SEMI-AUTO</div>
-                                <TooltipProvider delayDuration={100}>
-                                    <Tooltip>
-                                        {/* --- CHANGE: Removed asChild --- */}
-                                        <TooltipTrigger onClick={(e) => e.stopPropagation()}>
-                                            <Info className="h-3 w-3 opacity-50 hover:opacity-100 cursor-help"/>
-                                        </TooltipTrigger>
-                                         {/* --- END CHANGE --- */}
-                                        <TooltipContent side="right" className="text-xs max-w-xs">Manually select tables/columns for AI focus.</TooltipContent>
-                                    </Tooltip>
-                                </TooltipProvider>
-                            </div>
-                        </SelectItem>
-                    </SelectContent>
-                 </Select>
             {/* Top bar: SQL Editor title, AI Assist toggle, Run Query button */}
-            <div className="px-3 py-2 bg-background border-b border-border flex justify-between items-center h-10 flex-shrink-0">
+            <div className="px-4 py-2.5 bg-background border-b border-border flex justify-between items-center h-12 flex-shrink-0">
                 <div className="flex items-center gap-3">
-                    <span className="font-medium text-sm flex items-center gap-1.5 text-foreground">
+                    <span className="font-semibold text-sm flex items-center gap-2 text-foreground">
                         <Code className="h-4 w-4 text-primary"/> 
                         <span>SQL Editor</span>
                     </span>
@@ -1785,14 +1733,17 @@ const renderEditorPane = () => {
                                 <Button 
                                     variant={showNlSection ? "secondary" : "ghost"} 
                                     size="sm" 
-                                    className="h-7 px-2.5 transition-colors duration-200" 
+                                    className={cn(
+                                        "h-8 px-3 transition-all duration-300",
+                                        showNlSection ? "bg-primary/15 text-primary hover:bg-primary/20" : "hover:bg-muted"
+                                    )}
                                     onClick={() => setShowNlSection(!showNlSection)}
                                 >
-                                    <BrainCircuit className="h-3.5 w-3.5 mr-1.5"/> 
-                                    <span>AI Assist</span>
+                                    <BrainCircuit className="h-4 w-4 mr-2"/> 
+                                    <span className="font-medium">AI Assist</span>
                                 </Button>
                             </TooltipTrigger>
-                            <TooltipContent side="bottom" className="text-xs">Toggle AI Query Builder</TooltipContent>
+                            <TooltipContent side="bottom" className="text-xs bg-popover shadow-lg">Toggle AI Query Builder</TooltipContent>
                         </Tooltip>
                     </TooltipProvider>
                 </div>
@@ -1800,33 +1751,80 @@ const renderEditorPane = () => {
                     onClick={submitSqlJob} 
                     disabled={isRunningJob || !sql.trim()} 
                     size="sm" 
-                    className="h-7 px-3 font-medium transition-colors"
+                    className={cn(
+                        "h-8 px-4 font-medium transition-all duration-300",
+                        !isRunningJob && sql.trim() ? "bg-primary hover:bg-primary/90" : ""
+                    )}
                 >
                     {isRunningJob ? (
-                        <Loader2 className="mr-1.5 h-4 w-4 animate-spin"/> 
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin"/> 
                     ) : (
-                        <Play className="mr-1.5 h-3.5 w-3.5" />
-                    )} 
+                        <Play className="mr-2 h-4 w-4" />
+                    )}
                     Run Query
                 </Button>
             </div>
 
             {/* AI Assist Section */}
             {showNlSection && (
-                <div className="p-3 bg-background/50 border-b border-border flex-shrink-0 relative"> 
-                    <div className="flex gap-2 items-center">
-                    <Select
-                value={aiMode}
-                onValueChange={(value: 'AUTO' | 'SEMI_AUTO') => { /* ... setAiMode, clear selections ... */ }}
-                disabled={generatingSql || !selectedDatasetId}
-            >
-                <SelectContent>
-                    {/* ... SelectItem AUTO with Tooltip ... */}
-                     <SelectItem value="AUTO" className="text-xs"> {/* ... */} </SelectItem>
-                     {/* ... SelectItem SEMI-AUTO with Tooltip ... */}
-                     <SelectItem value="SEMI_AUTO" className="text-xs"> {/* ... */} </SelectItem>
-                </SelectContent>
-             </Select>
+                <div className="p-4 bg-background/80 border-b border-border flex-shrink-0 relative transition-all duration-300"> 
+                    <div className="flex gap-3 items-center">
+                        <Select
+                            value={aiMode}
+                            onValueChange={(value: 'AUTO' | 'SEMI_AUTO') => {
+                                setAiMode(value);
+                                if (value === 'AUTO') {
+                                    setSelectedAiTables(new Set());
+                                    setSelectedAiColumns(new Set());
+                                }
+                                console.log("AI Mode changed to:", value);
+                            }}
+                            disabled={generatingSql || !selectedDatasetId}
+                        >
+                            <SelectTrigger className="w-[140px] h-9 text-xs flex-shrink-0 font-medium bg-background/80 transition-all duration-200 focus:ring-2 focus:ring-primary/20">
+                                <SelectValue placeholder="AI Mode" />
+                            </SelectTrigger>
+                            <SelectContent className="shadow-lg border-primary/10">
+                                {/* SelectItem AUTO */}
+                                <SelectItem value="AUTO" className="text-xs py-2 focus:bg-primary/10">
+                                    <div className="flex items-center justify-between w-full">
+                                        <div className="flex items-center gap-2">
+                                            <CheckCheck className="h-3.5 w-3.5 text-primary"/> 
+                                            <span className="font-medium">AUTO</span>
+                                        </div>
+                                        <TooltipProvider delayDuration={100}>
+                                            <Tooltip>
+                                                <TooltipTrigger onClick={(e) => e.stopPropagation()}>
+                                                    <Info className="h-3.5 w-3.5 opacity-50 hover:opacity-100 cursor-help"/>
+                                                </TooltipTrigger>
+                                                <TooltipContent side="right" className="text-xs max-w-xs bg-popover shadow-lg">
+                                                    AI considers all tables in the workspace.
+                                                </TooltipContent>
+                                            </Tooltip>
+                                        </TooltipProvider>
+                                    </div>
+                                </SelectItem>
+                                {/* SelectItem SEMI-AUTO */}
+                                <SelectItem value="SEMI_AUTO" className="text-xs py-2 focus:bg-primary/10">
+                                    <div className="flex items-center justify-between w-full">
+                                        <div className="flex items-center gap-2">
+                                            <Settings2 className="h-3.5 w-3.5 text-primary"/> 
+                                            <span className="font-medium">SEMI-AUTO</span>
+                                        </div>
+                                        <TooltipProvider delayDuration={100}>
+                                            <Tooltip>
+                                                <TooltipTrigger onClick={(e) => e.stopPropagation()}>
+                                                    <Info className="h-3.5 w-3.5 opacity-50 hover:opacity-100 cursor-help"/>
+                                                </TooltipTrigger>
+                                                <TooltipContent side="right" className="text-xs max-w-xs bg-popover shadow-lg">
+                                                    Manually select tables/columns for AI focus.
+                                                </TooltipContent>
+                                            </Tooltip>
+                                        </TooltipProvider>
+                                    </div>
+                                </SelectItem>
+                            </SelectContent>
+                        </Select>
                         <div className="relative flex-grow">
                             <Input
                                 ref={promptInputRef}
@@ -1838,52 +1836,63 @@ const renderEditorPane = () => {
                                         setShowSuggestions(true);
                                     }
                                 }}
-                                className="flex-grow text-xs h-8 pl-7 focus:ring-1 focus:ring-primary/30"
+                                className="flex-grow text-xs h-9 pl-9 pr-3 focus:ring-2 focus:ring-primary/20 font-medium transition-all duration-200 bg-background"
                                 disabled={generatingSql || !selectedTableId}
                                 title={!selectedTableId ? "Select table first." : ""}
                                 autoComplete="off"
                             />
-                            <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                         </div>
                         <Button 
                             onClick={handleGenerateSql} 
                             disabled={!nlPrompt.trim() || generatingSql || !selectedTableId} 
                             size="sm" 
                             variant="secondary" 
-                            className="text-xs h-8 px-3 whitespace-nowrap transition-all hover:bg-primary hover:text-primary-foreground"
+                            className={cn(
+                                "text-xs h-9 px-4 whitespace-nowrap transition-all duration-300 font-medium",
+                                nlPrompt.trim() && !generatingSql && selectedTableId ? 
+                                "hover:bg-primary hover:text-primary-foreground" : ""
+                            )}
                         >
                             {generatingSql ? (
-                                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin"/>
+                                <Loader2 className="mr-2 h-4 w-4 animate-spin"/>
                             ) : (
-                                <BrainCircuit className="mr-1.5 h-3.5 w-3.5"/>
+                                <BrainCircuit className="mr-2 h-4 w-4"/>
                             )} 
                             Generate SQL
                         </Button>
                     </div>
+                    
                     {aiMode === 'SEMI_AUTO' && (
-             <div className="flex gap-2 items-center pt-1">
-                {/* Table Selector */}
-                {renderTableSelector()}
-                {/* Column Selector */}
-                {renderColumnSelector()}
-                 {/* ... (Optional hint span) ... */}
-             </div>
-        )}
+                        <div className="flex gap-3 items-center pt-3 mt-1 border-t border-border/40">
+                            {/* Table Selector */}
+                            {renderTableSelector()}
+                            {/* Column Selector */}
+                            {renderColumnSelector()}
+                            {/* Optional hint text */}
+                            <span className="text-xs text-muted-foreground italic ml-2">
+                                Select tables and columns to focus your query
+                            </span>
+                        </div>
+                    )}
+                    
                     {nlError && (
-                        <p className="text-xs text-destructive mt-2 px-1 flex items-center">
-                            <AlertCircle className="h-3 w-3 mr-1" /> {nlError}
-                        </p>
+                        <div className="mt-3 p-2 bg-destructive/10 border border-destructive/20 rounded-md">
+                            <p className="text-xs text-destructive flex items-center">
+                                <AlertCircle className="h-3.5 w-3.5 mr-2 flex-shrink-0" /> {nlError}
+                            </p>
+                        </div>
                     )}
 
                     {/* Suggestions Dropdown */}
                     {showSuggestions && (
                         <div
                             ref={suggestionContainerRef}
-                            className="absolute top-full left-3 right-3 mt-1 z-50 bg-popover border border-border rounded-md shadow-md max-h-48 overflow-y-auto"
+                            className="absolute top-full left-4 right-4 mt-1 z-50 bg-popover border border-border rounded-md shadow-lg max-h-56 overflow-y-auto"
                         >
                             {isLoadingSuggestions ? (
-                                <div className="p-3 text-xs text-muted-foreground flex items-center justify-center">
-                                    <Loader2 className="h-3.5 w-3.5 animate-spin mr-2" /> Loading suggestions...
+                                <div className="p-4 text-xs text-muted-foreground flex items-center justify-center">
+                                    <Loader2 className="h-4 w-4 animate-spin mr-3" /> Loading suggestions...
                                 </div>
                             ) : promptSuggestions.length > 0 ? (
                                 <ul className="py-1">
@@ -1891,9 +1900,9 @@ const renderEditorPane = () => {
                                         <li key={index}>
                                             <button
                                                 onClick={() => handleSuggestionClick(suggestion)}
-                                                className="w-full text-left px-3 py-2 text-xs text-popover-foreground hover:bg-muted transition-colors flex items-center"
+                                                className="w-full text-left px-4 py-2.5 text-xs text-popover-foreground hover:bg-primary/5 transition-colors flex items-center font-medium"
                                             >
-                                                <LightbulbIcon className="h-3 w-3 mr-2 text-primary" />
+                                                <LightbulbIcon className="h-3.5 w-3.5 mr-2.5 text-primary" />
                                                 {suggestion}
                                             </button>
                                         </li>
@@ -1901,7 +1910,7 @@ const renderEditorPane = () => {
                                 </ul>
                             ) : (
                                 !isLoadingSuggestions && (
-                                    <div className="p-3 text-xs text-muted-foreground text-center">
+                                    <div className="p-4 text-xs text-muted-foreground text-center">
                                         <span className="italic">No suggestions found.</span>
                                     </div>
                                 )
@@ -1913,40 +1922,62 @@ const renderEditorPane = () => {
 
             {/* Monaco Editor Area */}
             <div className="flex-grow relative bg-background">
-                     {/* --- START specific modification --- */}
-                     <Editor
-                        language="sql"
-                        value={sql}
-                        onChange={(value) => setSql(value || '')}
-                        theme="vs-dark" // Consider theme options
-                        options={{
-                            minimap: { enabled: false },
-                            fontSize: 13,
-                            wordWrap: 'on',
-                            scrollBeyondLastLine: false,
-                            automaticLayout: true,
-                            padding: { top: 8, bottom: 8 },
-                            readOnly: !selectedTableId // <-- ADDED: Make read-only if no table selected
-                        }}
-                        // Add a visual cue when disabled (optional, but good UX)
-                        // You might need to adjust wrapper styles if editor doesn't dim itself
-                        // Example: className={!selectedTableId ? 'opacity-60 cursor-not-allowed' : ''}
-                        loading={<div className="flex items-center justify-center h-full text-muted-foreground"><Loader2 className="h-5 w-5 animate-spin mr-2"/>Loading Editor...</div>}
-                    />
-                    {/* --- END specific modification --- */}
-                 </div>
+                <Editor
+                    language="sql"
+                    value={sql}
+                    onChange={(value) => setSql(value || '')}
+                    theme="vs-dark"
+                    options={{
+                        minimap: { enabled: false },
+                        fontSize: 14,
+                        wordWrap: 'on',
+                        scrollBeyondLastLine: false,
+                        automaticLayout: true,
+                        padding: { top: 12, bottom: 12 },
+                        lineHeight: 1.6,
+                        fontFamily: "'JetBrains Mono', Menlo, Monaco, Consolas, monospace",
+                        fontLigatures: true,
+                        cursorBlinking: 'smooth',
+                        cursorSmoothCaretAnimation: 'on',
+                        renderLineHighlight: 'all',
+                        smoothScrolling: true,
+                        readOnly: !selectedTableId
+                    }}
+                    className={!selectedTableId ? 'opacity-70' : ''}
+                    loading={
+                        <div className="flex items-center justify-center h-full text-muted-foreground">
+                            <div className="bg-background/80 p-4 rounded-lg shadow flex items-center">
+                                <Loader2 className="h-5 w-5 animate-spin mr-3"/>
+                                <span className="font-medium">Loading Editor...</span>
+                            </div>
+                        </div>
+                    }
+                />
+                {!selectedTableId && (
+                    <div className="absolute inset-0 bg-background/20 backdrop-blur-[1px] flex items-center justify-center pointer-events-none">
+                        <div className="bg-background p-4 rounded-lg shadow-md border border-border">
+                            <p className="text-sm text-muted-foreground flex items-center">
+                                <Database className="h-4 w-4 mr-2 text-primary/70" />
+                                Select a table to start editing
+                            </p>
+                        </div>
+                    </div>
+                )}
+            </div>
 
             {/* Resize Handle */}
             <div 
                 ref={resizeHandleRef} 
                 onMouseDown={startResizing} 
-                className="h-2 bg-background hover:bg-primary/20 cursor-ns-resize flex-shrink-0 flex items-center justify-center transition-colors"
+                className="h-5 bg-background hover:bg-primary/10 cursor-ns-resize flex-shrink-0 flex items-center justify-center sticky bottom-0 z-10 border-t border-border"
             >
-                <div className="w-12 h-1 bg-border rounded-full hover:bg-primary transition-colors" />
+                <div className="w-20 h-1.5 bg-border/80 rounded-full hover:bg-primary/80 transition-colors" />
+                <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-b from-transparent to-background/50 pointer-events-none"></div>
             </div>
         </div>
     );
 };
+
     // --- MODIFIED renderEditorPane function ---
     // const renderEditorPane = () => {
     //     return (
