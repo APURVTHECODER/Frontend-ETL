@@ -15,8 +15,23 @@ import {
     LineChart as LineChartIcon, PieChart as PieChartIcon, Dot , Trash2 ,History,Copy,
     ListFilter, // Added Filter icon
     MessageSquare,X,
-    FileSpreadsheet, Clock ,Sparkles , LightbulbIcon , AlertCircle , Play
+    FileSpreadsheet, Clock ,Sparkles , LightbulbIcon , AlertCircle , Play ,Settings2,Check,ChevronsUpDown,Columns,CheckCheck
 } from "lucide-react";
+import {
+    Command,
+    CommandEmpty,
+    CommandGroup,
+    CommandInput,
+    CommandItem,
+    CommandList,
+    CommandSeparator,
+  } from "@/components/ui/command";
+import {
+    Popover,
+    PopoverContent,
+    PopoverTrigger,
+  } from "@/components/ui/popover";
+import { cn } from "@/lib/utils"; 
 import { useToast } from "@/hooks/use-toast"
 import {
     BarChart, Bar, LineChart, Line, PieChart, Pie, ScatterChart, Scatter,
@@ -109,6 +124,13 @@ const BigQueryTableViewer: React.FC = () => {
     const { toast } = useToast(); // Initialize toast
     // --- State Variables (Keep existing ones) ---
     const [tables, setTables] = useState<TableInfo[]>([]);
+    // +++ MODIFICATION START: State for AI Mode and Selections +++
+    const [aiMode, setAiMode] = useState<'AUTO' | 'SEMI_AUTO'>('AUTO');
+    const [selectedAiTables, setSelectedAiTables] = useState<Set<string>>(new Set());
+    const [selectedAiColumns, setSelectedAiColumns] = useState<Set<string>>(new Set());
+    const [isTablePopoverOpen, setIsTablePopoverOpen] = useState(false);
+    const [isColumnPopoverOpen, setIsColumnPopoverOpen] = useState(false);
+// +++ MODIFICATION END +++
     const [filteredTables, setFilteredTables] = useState<TableInfo[]>([]);
     const [listTablesError, setListTablesError] = useState<string>("");
     const [selectedTableId, setSelectedTableId] = useState<string | null>(null);
@@ -203,7 +225,28 @@ const BigQueryTableViewer: React.FC = () => {
 // Inside BigQueryTableViewer component
 
 // ... other functions like fetchTables, submitSqlJob etc ...
-
+// +++ MODIFICATION START: Derive available columns for SEMI_AUTO mode +++
+// --- START: Added useMemo Hook ---
+const availableColumnsForSelection = useMemo(() => {
+    if (aiMode !== 'SEMI_AUTO' || selectedAiTables.size === 0 || !schemaData) {
+        return [];
+    }
+    const columns: AvailableColumnOption[] = [];
+    schemaData.tables.forEach(table => {
+        if (selectedAiTables.has(table.table_id)) {
+            table.columns.forEach(col => {
+                columns.push({
+                    value: col.name,
+                    label: `${table.table_id}.${col.name}`,
+                    tableName: table.table_id,
+                });
+            });
+        }
+    });
+    return columns.sort((a, b) => a.label.localeCompare(b.label));
+}, [aiMode, selectedAiTables, schemaData]);
+// --- END: Added useMemo Hook ---
+ // +++ MODIFICATION END +++
 // +++ Function to Fetch Prompt Suggestions +++
 const fetchPromptSuggestions = useCallback(async (currentPrompt: string) => {
     if (currentPrompt.trim().length < 3) { // Minimum length to trigger suggestions
@@ -696,36 +739,89 @@ useEffect(() => {
      // Dependencies: Correctly includes fullDatasetId
     }, [fullDatasetId, getErrorMessage]);
 
+// +++ MODIFICATION START: Add effect for clearing columns +++
+// Effect to clear selected columns when selected tables change
+useEffect(() => {
+    setSelectedAiColumns(new Set());
+}, [selectedAiTables]);
+ // +++ MODIFICATION END +++
 
+// Modify the dataset change effect
+useEffect(() => {
+    if (selectedDatasetId) {
+        // ... (reset other state like tables, schema, jobs, etc.) ...
+
+         // +++ MODIFICATION START: Reset AI selections on dataset change +++
+         setAiMode('AUTO');
+         setSelectedAiTables(new Set());
+         setSelectedAiColumns(new Set());
+         // +++ MODIFICATION END +++
+
+        fetchTables();
+        fetchSchema();
+    }
+}, [selectedDatasetId, fetchTables, fetchSchema]); // Dependencies unchanged
     
     // --- MODIFIED handleGenerateSql callback ---
-    const handleGenerateSql = useCallback(async () => {
-        const currentPrompt = nlPrompt.trim();
-         if (!currentPrompt) {
-             setNlError("Please enter a query description.");
-             return;
-         }
-         // --- START specific modification ---
-         // Ensure a dataset is selected (API needs it). Table selection is handled by disabling UI.
-         if (!selectedDatasetId) {
-             setNlError("Please select a workspace first.");
-             return;
-         }
-         // --- END specific modification ---
+// --- START: Refactored handleGenerateSql Callback ---
+const handleGenerateSql = useCallback(async () => {
+    const currentPrompt = nlPrompt.trim();
+    if (!currentPrompt) { setNlError("Please enter a query description."); return; }
+    if (!selectedDatasetId) { setNlError("Please select a workspace first."); return; }
 
-         setGeneratingSql(true); setNlError(""); setJobError(""); /* ... reset other states ... */
-         setLastUserPrompt(currentPrompt);
-         try {
-             // ... (API call to /api/bigquery/nl2sql) ...
-             const r=await axiosInstance.post<NLQueryResponse>('/api/bigquery/nl2sql',{prompt:nlPrompt,dataset_id:fullDatasetId}); if(r.data.error){setNlError(r.data.error);} else if(r.data.generated_sql){setSql(r.data.generated_sql); setNlPrompt("");} else {setNlError("AI did not return valid SQL.");}
-         } catch(e){
-             // ... (Error handling) ...
-              setNlError(`Generate SQL failed: ${getErrorMessage(e)}`);
-         } finally {
-             setGeneratingSql(false);
-         }
-     }, [nlPrompt, fullDatasetId, selectedDatasetId, stopPolling, getErrorMessage]); // Added selectedDatasetId to dependencies
+    // SEMI_AUTO Mode Validation
+    if (aiMode === 'SEMI_AUTO' && selectedAiTables.size === 0) {
+        setNlError("SEMI-AUTO mode requires at least one table selection.");
+        return;
+    }
 
+    setGeneratingSql(true); setNlError(""); setJobError("");
+    setJobId(null); setJobLocation(null); setJobStatus(null); setJobResults(null);
+    setActiveFilters({}); setActiveVisualization(null); setSuggestedCharts([]);
+    setAiSummary(null); setAiSummaryError(null); setLoadingAiSummary(false);
+    setLastUserPrompt(currentPrompt);
+
+    try {
+        const payload: any = {
+            prompt: currentPrompt,
+            dataset_id: fullDatasetId,
+            ai_mode: aiMode,
+        };
+
+        if (aiMode === 'SEMI_AUTO') {
+            payload.selected_tables = Array.from(selectedAiTables);
+            if (selectedAiColumns.size > 0) {
+                payload.selected_columns = Array.from(selectedAiColumns);
+            }
+            console.log("Sending SEMI_AUTO payload:", payload);
+        } else {
+             console.log("Sending AUTO payload:", payload);
+        }
+
+        const r = await axiosInstance.post<NLQueryResponse>('/api/bigquery/nl2sql', payload);
+
+        if (r.data.error) {
+            setNlError(r.data.error);
+            setSql(`-- AI Error: ${r.data.error}\n-- Your prompt: ${currentPrompt}`);
+        } else if (r.data.generated_sql) {
+            setSql(r.data.generated_sql);
+             toast({ title: "SQL Generated", description: "Review the query and click 'Run Query'.", variant: "default" });
+        } else {
+            setNlError("AI did not return valid SQL.");
+             setSql(`-- AI returned no SQL.\n-- Your prompt: ${currentPrompt}`);
+        }
+    } catch (e: any) {
+        const errorMsg = `Generate SQL failed: ${getErrorMessage(e)}`;
+        setNlError(errorMsg);
+         setSql(`-- Failed to generate SQL: ${errorMsg}\n-- Your prompt: ${currentPrompt}`);
+    } finally {
+        setGeneratingSql(false);
+    }
+}, [
+    nlPrompt, fullDatasetId, selectedDatasetId, getErrorMessage, stopPolling, toast,
+    aiMode, selectedAiTables, selectedAiColumns // New dependencies
+]);
+// --- END: Refactored handleGenerateSql Callback ---
 
 
 // Add this useEffect for initial dataset loading
@@ -1469,12 +1565,213 @@ useEffect(() => {
 // Inside BigQueryTableViewer component -> renderEditorPane function
 
 const renderEditorPane = () => {
+    // Inside renderEditorPane function
+
+// Helper to render the multi-select popover for Tables
+    // Helper to render the multi-select popover for Tables
+    const renderTableSelector = () => (
+        <Popover open={isTablePopoverOpen} onOpenChange={setIsTablePopoverOpen}>
+            <PopoverTrigger asChild>
+                <Button
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={isTablePopoverOpen}
+                    className="w-[250px] justify-between text-xs h-7"
+                    disabled={!tables || tables.length === 0}
+                >
+                     <span className="truncate">
+                       {selectedAiTables.size > 0
+                         ? `${selectedAiTables.size} table(s) selected`
+                         : "Select tables..."}
+                     </span>
+                     <ChevronsUpDown className="ml-2 h-3 w-3 shrink-0 opacity-50" />
+                 </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-[250px] p-0">
+                <Command>
+                    <CommandInput placeholder="Search tables..." className="h-8 text-xs" />
+                    <CommandList>
+                        <CommandEmpty>No tables found.</CommandEmpty>
+                        <CommandGroup>
+                            {tables.map((table) => (
+                                <CommandItem
+                                    key={table.tableId}
+                                    value={table.tableId}
+                                    onSelect={(currentValue) => {
+                                        setSelectedAiTables(prev => {
+                                            const next = new Set(prev);
+                                            if (next.has(currentValue)) {
+                                                next.delete(currentValue);
+                                            } else {
+                                                next.add(currentValue);
+                                            }
+                                            return next;
+                                        });
+                                    }}
+                                    className="text-xs"
+                                >
+                                     <Check
+                                        className={cn(
+                                            "mr-2 h-3 w-3",
+                                            selectedAiTables.has(table.tableId) ? "opacity-100" : "opacity-0"
+                                        )}
+                                    />
+                                     {table.tableId}
+                                 </CommandItem>
+                            ))}
+                        </CommandGroup>
+                         {selectedAiTables.size > 0 && (
+                            <>
+                                <CommandSeparator />
+                                <CommandGroup>
+                                    <CommandItem
+                                        onSelect={() => {
+                                            setSelectedAiTables(new Set());
+                                        }}
+                                        className="text-xs text-destructive justify-center"
+                                    >
+                                        Clear selection
+                                    </CommandItem>
+                                </CommandGroup>
+                            </>
+                        )}
+                    </CommandList>
+                </Command>
+            </PopoverContent>
+        </Popover>
+    );
+
+    // Helper to render the multi-select popover for Columns
+    const renderColumnSelector = () => (
+        <Popover open={isColumnPopoverOpen} onOpenChange={setIsColumnPopoverOpen}>
+            <PopoverTrigger asChild>
+                 <Button
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={isColumnPopoverOpen}
+                    className="w-[250px] justify-between text-xs h-7"
+                    disabled={availableColumnsForSelection.length === 0}
+                >
+                     <span className="truncate">
+                        {selectedAiColumns.size > 0
+                            ? `${selectedAiColumns.size} column(s) selected`
+                            : "Select columns (optional)..."}
+                     </span>
+                     <ChevronsUpDown className="ml-2 h-3 w-3 shrink-0 opacity-50" />
+                 </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-[250px] p-0">
+                <Command>
+                    <CommandInput placeholder="Search columns..." className="h-8 text-xs" />
+                    <CommandList>
+                        <CommandEmpty>No columns available.</CommandEmpty>
+                        <CommandGroup>
+                            {availableColumnsForSelection.map((col) => (
+                                <CommandItem
+                                    key={col.label}
+                                    value={col.value}
+                                    onSelect={(currentValue) => {
+                                        setSelectedAiColumns(prev => {
+                                            const next = new Set(prev);
+                                            if (next.has(currentValue)) {
+                                                next.delete(currentValue);
+                                            } else {
+                                                next.add(currentValue);
+                                            }
+                                            return next;
+                                        });
+                                    }}
+                                    className="text-xs"
+                                    title={col.label}
+                                >
+                                    <Check
+                                        className={cn(
+                                            "mr-2 h-3 w-3",
+                                            selectedAiColumns.has(col.value) ? "opacity-100" : "opacity-0"
+                                        )}
+                                    />
+                                    <span className="truncate">{col.label}</span>
+                                </CommandItem>
+                            ))}
+                        </CommandGroup>
+                        {selectedAiColumns.size > 0 && (
+                            <>
+                                <CommandSeparator />
+                                <CommandGroup>
+                                    <CommandItem
+                                        onSelect={() => {
+                                            setSelectedAiColumns(new Set());
+                                        }}
+                                        className="text-xs text-destructive justify-center"
+                                    >
+                                        Clear column selection
+                                    </CommandItem>
+                                </CommandGroup>
+                            </>
+                        )}
+                    </CommandList>
+                </Command>
+            </PopoverContent>
+        </Popover>
+    );
+
+// ... (rest of renderEditorPane return statement uses these helpers) ...
     return (
         <div 
             ref={editorPaneRef} 
             className="flex flex-col border border-border rounded-md shadow-sm overflow-hidden bg-muted/20" 
             style={{ height: `${editorPaneHeight}px` }}
         >
+                             <Select
+                    value={aiMode}
+                    onValueChange={(value: 'AUTO' | 'SEMI_AUTO') => {
+                        setAiMode(value);
+                        if (value === 'AUTO') {
+                            setSelectedAiTables(new Set());
+                            setSelectedAiColumns(new Set());
+                        }
+                        console.log("AI Mode changed to:", value);
+                    }}
+                    disabled={generatingSql || !selectedDatasetId}
+                >
+                    <SelectTrigger className="w-[130px] h-8 text-xs flex-shrink-0">
+                        <SelectValue placeholder="AI Mode" />
+                    </SelectTrigger>
+                    <SelectContent>
+                        {/* SelectItem AUTO - Corrected TooltipTrigger */}
+                        <SelectItem value="AUTO" className="text-xs">
+                            <div className="flex items-center justify-between w-full">
+                                <div className="flex items-center gap-1.5"><CheckCheck className="h-3 w-3"/> AUTO</div>
+                                <TooltipProvider delayDuration={100}>
+                                    <Tooltip>
+                                        {/* --- CHANGE: Removed asChild --- */}
+                                        <TooltipTrigger onClick={(e) => e.stopPropagation()}>
+                                            <Info className="h-3 w-3 opacity-50 hover:opacity-100 cursor-help"/>
+                                        </TooltipTrigger>
+                                        {/* --- END CHANGE --- */}
+                                        <TooltipContent side="right" className="text-xs max-w-xs">AI considers all tables in the workspace.</TooltipContent>
+                                    </Tooltip>
+                                </TooltipProvider>
+                            </div>
+                        </SelectItem>
+                        {/* SelectItem SEMI-AUTO - Corrected TooltipTrigger */}
+                        <SelectItem value="SEMI_AUTO" className="text-xs">
+                           <div className="flex items-center justify-between w-full">
+                                <div className="flex items-center gap-1.5"><Settings2 className="h-3 w-3"/> SEMI-AUTO</div>
+                                <TooltipProvider delayDuration={100}>
+                                    <Tooltip>
+                                        {/* --- CHANGE: Removed asChild --- */}
+                                        <TooltipTrigger onClick={(e) => e.stopPropagation()}>
+                                            <Info className="h-3 w-3 opacity-50 hover:opacity-100 cursor-help"/>
+                                        </TooltipTrigger>
+                                         {/* --- END CHANGE --- */}
+                                        <TooltipContent side="right" className="text-xs max-w-xs">Manually select tables/columns for AI focus.</TooltipContent>
+                                    </Tooltip>
+                                </TooltipProvider>
+                            </div>
+                        </SelectItem>
+                    </SelectContent>
+                 </Select>
             {/* Top bar: SQL Editor title, AI Assist toggle, Run Query button */}
             <div className="px-3 py-2 bg-background border-b border-border flex justify-between items-center h-10 flex-shrink-0">
                 <div className="flex items-center gap-3">
@@ -1518,6 +1815,18 @@ const renderEditorPane = () => {
             {showNlSection && (
                 <div className="p-3 bg-background/50 border-b border-border flex-shrink-0 relative"> 
                     <div className="flex gap-2 items-center">
+                    <Select
+                value={aiMode}
+                onValueChange={(value: 'AUTO' | 'SEMI_AUTO') => { /* ... setAiMode, clear selections ... */ }}
+                disabled={generatingSql || !selectedDatasetId}
+            >
+                <SelectContent>
+                    {/* ... SelectItem AUTO with Tooltip ... */}
+                     <SelectItem value="AUTO" className="text-xs"> {/* ... */} </SelectItem>
+                     {/* ... SelectItem SEMI-AUTO with Tooltip ... */}
+                     <SelectItem value="SEMI_AUTO" className="text-xs"> {/* ... */} </SelectItem>
+                </SelectContent>
+             </Select>
                         <div className="relative flex-grow">
                             <Input
                                 ref={promptInputRef}
@@ -1551,6 +1860,15 @@ const renderEditorPane = () => {
                             Generate SQL
                         </Button>
                     </div>
+                    {aiMode === 'SEMI_AUTO' && (
+             <div className="flex gap-2 items-center pt-1">
+                {/* Table Selector */}
+                {renderTableSelector()}
+                {/* Column Selector */}
+                {renderColumnSelector()}
+                 {/* ... (Optional hint span) ... */}
+             </div>
+        )}
                     {nlError && (
                         <p className="text-xs text-destructive mt-2 px-1 flex items-center">
                             <AlertCircle className="h-3 w-3 mr-1" /> {nlError}
