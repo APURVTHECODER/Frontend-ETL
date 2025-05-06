@@ -15,7 +15,7 @@ import {
     LineChart as LineChartIcon, PieChart as PieChartIcon, Dot , Trash2 ,History,Copy,
     ListFilter, // Added Filter icon
     MessageSquare,X,
-    FileSpreadsheet, Clock ,Sparkles , LightbulbIcon , AlertCircle , Play ,Settings2,Check,ChevronsUpDown,Columns,CheckCheck
+    FileSpreadsheet, Clock ,Sparkles , LightbulbIcon , AlertCircle , Play ,Settings2,Check,ChevronsUpDown,CheckCheck
 } from "lucide-react";
 import {
     Command,
@@ -227,6 +227,14 @@ const BigQueryTableViewer: React.FC = () => {
 // ... other functions like fetchTables, submitSqlJob etc ...
 // +++ MODIFICATION START: Derive available columns for SEMI_AUTO mode +++
 // --- START: Added useMemo Hook ---
+
+interface AvailableColumnOption {
+    value: string;
+    label: string;
+    tableName: string;
+  }
+
+
 const availableColumnsForSelection = useMemo(() => {
     if (aiMode !== 'SEMI_AUTO' || selectedAiTables.size === 0 || !schemaData) {
         return [];
