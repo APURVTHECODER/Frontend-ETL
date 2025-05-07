@@ -4,6 +4,7 @@ import Editor from '@monaco-editor/react'
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import axiosInstance from '@/lib/axios-instance';
+import { format, parseISO, isValid as isValidDate } from 'date-fns';
 import { ChatbotWindow } from "@/components/chatbot/ChatbotWindow";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import {
@@ -63,7 +64,6 @@ import { Badge } from "@/components/ui/badge";
 import { saveAs } from 'file-saver';
 // --- Import Filter Components and Types ---
 import { FilterConfig, ActiveFilters, ActiveFilterValue, FilterType } from '@/components/filters/filterTypes';
-import { parseISO, isValid } from 'date-fns'; // Import date-fns for parsing
 import { FilterControls } from "@/components/filters/FilterControls";
 // import { ThemeToggle } from "./ThemeToggle";
 // --- Interfaces (Keep existing ones) ---
@@ -220,7 +220,26 @@ const BigQueryTableViewer: React.FC = () => {
     const resizeHandleRef = useRef<HTMLDivElement>(null);
     const POLLING_INTERVAL_MS = 3000;
 
-
+// Helper function to format potential ISO date strings to YYYY-MM-DD
+const formatDisplayDateYYYYMMDD = (dateString: string | null | undefined): string => {
+    if (!dateString || typeof dateString !== 'string') return "N/A"; // Basic validation
+    try {
+        // parseISO handles various ISO 8601 formats including timezone offsets
+        const parsedDate = parseISO(dateString);
+        if (isValidDate(parsedDate)) {
+            // Format to YYYY-MM-DD
+            return format(parsedDate, 'yyyy-MM-dd');
+        } else {
+            // If parseISO couldn't understand it as a valid date, return original
+            return dateString;
+        }
+    } catch (e) {
+        // Catch any unexpected errors during parsing/formatting
+        console.warn(`Error formatting date string "${dateString}":`, e);
+        return dateString; // Return original on error
+    }
+};
+    
     // +++ State for AI Summary +++
     const [aiSummary, setAiSummary] = useState<string | null>(null);
     const [loadingAiSummary, setLoadingAiSummary] = useState<boolean>(false);
@@ -1706,7 +1725,30 @@ useEffect(() => {
                                 <tr>{previewColumns.map(c=>(<th key={c} className="px-2 py-1.5 text-left font-medium text-muted-foreground border-b border-r last:border-r-0"><div className="flex items-center cursor-pointer group" onClick={()=>handlePreviewSort(c)}><span className="truncate max-w-32">{c}</span><div className="ml-1 text-muted-foreground/50 group-hover:text-muted-foreground">{previewSortConfig?.key===c?(previewSortConfig.direction==='asc'?<SortAsc className="h-3 w-3"/>:<SortDesc className="h-3 w-3"/>):<ArrowUpDown className="h-3 w-3"/>}</div></div></th>))}</tr>
                             </thead>
                             <tbody className="font-mono divide-y divide-border text-foreground">
-                                {previewRows.map((r,i)=>(<tr key={i} className="hover:bg-muted/50">{previewColumns.map(c=>(<td key={c} className="px-2 py-1 max-w-40 truncate border-r last:border-r-0" title={String(r[c]??null)}>{r[c]!=null?String(r[c]):<span className="italic text-muted-foreground">null</span>}</td>))}</tr>))}
+                                {previewRows.map((r,i)=>(<tr key={i} className="hover:bg-muted/50">
+            {previewColumns.map(c => {
+                const cellValue = r[c];
+
+                // Decide whether to attempt formatting (check if it's a string first)
+                // We rely on formatDisplayDateYYYYMMDD to handle actual parsing/validation
+                const displayValue = (typeof cellValue === 'string')
+                    ? formatDisplayDateYYYYMMDD(cellValue) // Attempt formatting
+                    : cellValue != null ? String(cellValue) : <span className="italic text-muted-foreground">null</span>;
+
+                return (
+                    <td key={c} className="px-2 py-1 max-w-40 truncate border-r last:border-r-0" title={String(cellValue ?? 'null')}>
+                        {displayValue}
+                    </td>
+                );
+            
+                                                                            return (
+                                                                                <td key={c} className="px-2 py-1 max-w-40 truncate border-r last:border-r-0" title={String(cellValue ?? 'null')}>
+                                                                                    {displayValue}
+                                                                                </td>
+                                                                            );
+                                                                        })}
+                                                                    </tr>
+                                                                ))}
                             </tbody>
                         </table>
                     </ScrollArea>
