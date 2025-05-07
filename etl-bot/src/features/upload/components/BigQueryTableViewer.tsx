@@ -1,11 +1,22 @@
 import React, { useEffect, useState, useRef, useCallback, useMemo } from "react"; // Added useMemo
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import Editor from '@monaco-editor/react'
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import axiosInstance from '@/lib/axios-instance';
 import { ChatbotWindow } from "@/components/chatbot/ChatbotWindow";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+    AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
     Loader2, Terminal, Search, Database, BrainCircuit, ListTree, Bookmark,
@@ -17,6 +28,7 @@ import {
     MessageSquare,X,
     FileSpreadsheet, Clock ,Sparkles , LightbulbIcon , AlertCircle , Play ,Settings2,Check,ChevronsUpDown,CheckCheck
 } from "lucide-react";
+import { useAuth } from '@/contexts/AuthContext';
 import {
     Command,
     CommandEmpty,
@@ -110,6 +122,18 @@ type ActiveVisualizationConfig = {
     rationale?: string;
   };
 const BigQueryTableViewer: React.FC = () => {
+      const { userProfile,  } = useAuth();
+      const isAdmin = userProfile?.role === 'admin';
+    const getErrorMessage = useCallback((error: any): string => { 
+        {
+            const d=error.response?.data; if(d && typeof d==='object' && 'detail' in d)return String(d.detail);
+             if(typeof d==='string')
+                return d; return error.message;
+            } 
+            if(error instanceof Error)
+                return error.message; 
+            return"An unknown error occurred."; 
+        }, []);
     // SecondTeam
     // process.env.NEXT_PUBLIC_GCP_PROJECT_ID || 
     const projectId = "crafty-tracker-457215-g6";
@@ -124,6 +148,8 @@ const BigQueryTableViewer: React.FC = () => {
     const { toast } = useToast(); // Initialize toast
     // --- State Variables (Keep existing ones) ---
     const [tables, setTables] = useState<TableInfo[]>([]);
+        // +++ MODIFICATION START: Add userRole state +++
+        // +++ MODIFICATION END +++
     // +++ MODIFICATION START: State for AI Mode and Selections +++
     const [aiMode, setAiMode] = useState<'AUTO' | 'SEMI_AUTO'>('AUTO');
     const [selectedAiTables, setSelectedAiTables] = useState<Set<string>>(new Set());
@@ -291,6 +317,36 @@ const fetchPromptSuggestions = useCallback(async (currentPrompt: string) => {
         setIsLoadingSuggestions(false);
     }
 }, []); // Dependency array is empty as it uses state setters and useCallback
+const fetchSchema = useCallback(async () => {
+    // +++ Refined Guard Clause (Similar to fetchTables) +++
+    if (!fullDatasetId || !fullDatasetId.includes('.')) {
+        console.warn(`Skipping fetchSchema: Invalid or empty fullDatasetId ('${fullDatasetId}')`);
+        setSchemaData(null);
+        setLoadingSchema(false);
+        setSchemaError(""); // Clear schema error if skipping
+        return; // Exit early
+    }
+    // +++ End Refined Guard Clause +++
+
+    console.log(`Fetching schema for dataset: ${fullDatasetId}`);
+    setLoadingSchema(true);
+    setSchemaError("");
+    setSchemaData(null);
+    try {
+        const url = `/api/bigquery/schema?dataset_id=${encodeURIComponent(fullDatasetId)}`;
+        console.log(`Calling Schema API: ${url}`); // Log the exact URL
+        const r = await axiosInstance.get<SchemaResponse>(url);
+        setSchemaData(r.data);
+    } catch(e){
+        console.error("Error fetching schema:", e);
+        const errorMessage = getErrorMessage(e);
+        console.error(`Full error message received in fetchSchema: ${errorMessage}`); // Log the specific error
+        setSchemaError(`Load schema failed: ${errorMessage}`);
+    } finally {
+        setLoadingSchema(false);
+    }
+ // Dependencies: Correctly includes fullDatasetId
+}, [fullDatasetId, getErrorMessage]);
 
 // +++ Handle Prompt Input Change with Debouncing +++
 const handlePromptChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -328,6 +384,60 @@ const handleSuggestionClick = useCallback((suggestion: string) => {
     promptInputRef.current?.focus(); // Optional: refocus the input
 }, []);
 
+
+const handleDeleteTable = useCallback(async (datasetIdToDeleteFrom: string, tableIdToDelete: string) => {
+    if (!datasetIdToDeleteFrom) {
+         toast({ title: "Error", description: "Dataset ID missing for deletion.", variant: "destructive" });
+         return;
+    }
+     // Use AlertDialog for confirmation (preferred) or window.confirm
+     // const confirmed = window.confirm(`Are you sure you want to permanently delete the table "${tableIdToDelete}" from workspace "${datasetIdToDeleteFrom}"? This action cannot be undone.`);
+     // if (!confirmed) {
+     //     return;
+     // }
+
+    console.log(`Attempting to delete table: ${tableIdToDelete} from dataset: ${datasetIdToDeleteFrom}`);
+    // Consider adding a loading state for the specific table being deleted
+    try {
+        await axiosInstance.delete(`/api/bigquery/datasets/${encodeURIComponent(datasetIdToDeleteFrom)}/tables/${encodeURIComponent(tableIdToDelete)}`);
+
+        toast({
+            title: "Table Deleted",
+            description: `Table "${tableIdToDelete}" has been successfully deleted.`,
+            variant: "default", // Use success variant if available
+        });
+
+        // Update UI state
+        setTables(prev => prev.filter(t => t.tableId !== tableIdToDelete));
+        setFilteredTables(prev => prev.filter(t => t.tableId !== tableIdToDelete));
+        if (selectedTableId === tableIdToDelete) {
+            // Reset selection if the deleted table was selected
+            setSelectedTableId(null);
+            setPreviewRows([]);
+            setPreviewColumns([]);
+            setPreviewTotalRows(0);
+            setPreviewError("");
+            setTableStats(null);
+            setSql(`-- Table ${tableIdToDelete} deleted. Select another table or use AI ✨`);
+            setCurrentOutputTab('data'); // Switch back to data/preview tab
+        }
+        // Refresh schema data as well? Optional, depends on how often schema is used elsewhere.
+        fetchSchema(); // Refresh schema after deletion might be good
+
+    } catch (error: any) {
+        console.error(`Failed to delete table ${tableIdToDelete}:`, error);
+        const errorMessage = getErrorMessage(error);
+        toast({
+            title: "Deletion Failed",
+            description: `Could not delete table "${tableIdToDelete}": ${errorMessage}`,
+            variant: "destructive",
+        });
+    } finally {
+        // Reset loading state if implemented
+    }
+}, [selectedTableId, toast, getErrorMessage, fetchSchema]); // Add dependencies if needed
+
+
 // +++ Handle Clicking Outside to Hide Suggestions +++
 useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -354,16 +464,7 @@ useEffect(() => {
 
 
 // ... rest of the component ...
-    const getErrorMessage = useCallback((error: any): string => { 
-        {
-            const d=error.response?.data; if(d && typeof d==='object' && 'detail' in d)return String(d.detail);
-             if(typeof d==='string')
-                return d; return error.message;
-            } 
-            if(error instanceof Error)
-                return error.message; 
-            return"An unknown error occurred."; 
-        }, []);
+
     const formatBytes = useCallback((bytes: number | null | undefined): string => { if(bytes==null||bytes===undefined||bytes===0)return"0 Bytes"; const k=1024,s=["Bytes","KB","MB","GB","TB"],i=Math.floor(Math.log(bytes)/Math.log(k)); return parseFloat((bytes/Math.pow(k,i)).toFixed(2))+" "+s[i]; }, []);
     const formatDate = useCallback((dateString: string | null | undefined): string => { if(!dateString)return"N/A"; try{return new Date(dateString).toLocaleString();}catch(e){return dateString;} }, []);
     const copyToClipboard = useCallback((text: string, message: string = "Copied!"): void => { navigator.clipboard.writeText(text).then(()=>{console.log(message); /* TODO: Add toast */}).catch(err=>{console.error("Copy failed:",err);}); }, []);
@@ -716,36 +817,6 @@ useEffect(() => {
     const handlePreviewSort = useCallback((columnName: string) => { let d:"asc"|"desc"="asc"; if(previewSortConfig?.key===columnName&&previewSortConfig.direction==="asc")d="desc"; setPreviewSortConfig({key:columnName,direction:d}); const s=[...previewRows].sort((a,b)=>{ const valA=a[columnName], valB=b[columnName]; if(valA==null)return 1; if(valB==null)return -1; if(valA<valB)return d==="asc"?-1:1; if(valA>valB)return d==="asc"?1:-1; return 0; }); setPreviewRows(s);}, [previewSortConfig, previewRows]);
     
     
-    const fetchSchema = useCallback(async () => {
-        // +++ Refined Guard Clause (Similar to fetchTables) +++
-        if (!fullDatasetId || !fullDatasetId.includes('.')) {
-            console.warn(`Skipping fetchSchema: Invalid or empty fullDatasetId ('${fullDatasetId}')`);
-            setSchemaData(null);
-            setLoadingSchema(false);
-            setSchemaError(""); // Clear schema error if skipping
-            return; // Exit early
-        }
-        // +++ End Refined Guard Clause +++
-
-        console.log(`Fetching schema for dataset: ${fullDatasetId}`);
-        setLoadingSchema(true);
-        setSchemaError("");
-        setSchemaData(null);
-        try {
-            const url = `/api/bigquery/schema?dataset_id=${encodeURIComponent(fullDatasetId)}`;
-            console.log(`Calling Schema API: ${url}`); // Log the exact URL
-            const r = await axiosInstance.get<SchemaResponse>(url);
-            setSchemaData(r.data);
-        } catch(e){
-            console.error("Error fetching schema:", e);
-            const errorMessage = getErrorMessage(e);
-            console.error(`Full error message received in fetchSchema: ${errorMessage}`); // Log the specific error
-            setSchemaError(`Load schema failed: ${errorMessage}`);
-        } finally {
-            setLoadingSchema(false);
-        }
-     // Dependencies: Correctly includes fullDatasetId
-    }, [fullDatasetId, getErrorMessage]);
 
 // +++ MODIFICATION START: Add effect for clearing columns +++
 // Effect to clear selected columns when selected tables change
@@ -1354,33 +1425,106 @@ useEffect(() => {
         const displayTables = filteredTables.filter(t => t.tableId.toLowerCase().includes(tableSearchQuery.toLowerCase()));
         if(displayTables.length===0){return(<div className="text-center py-8 text-muted-foreground text-sm">No tables found{tableSearchQuery&&` matching "${tableSearchQuery}"`}.</div>);}
         return(
-            <ScrollArea className="h-full pb-4">
-                <ul className="space-y-0.5 pr-2">
-                    {displayTables.map((t)=>{
-                        const isFav=favoriteTables.includes(t.tableId);
-                        return(
-                            <li key={t.tableId} className="flex items-center group">
-                                {/* Apply standard hover/active styles */}
-                                <button
-                                    onClick={()=>handleTableSelect(t.tableId)}
-                                    className={`flex-grow px-2 py-1.5 rounded-md text-left truncate text-xs transition-colors duration-150 ease-in-out ${selectedTableId===t.tableId?'bg-primary text-primary-foreground font-medium':'text-foreground hover:bg-muted'}`}
-                                >
-                                    <div className="flex items-center gap-1.5">
-                                        <Database className="h-3 w-3 flex-shrink-0 text-muted-foreground group-hover:text-foreground"/>
-                                        <span className="truncate">{t.tableId}</span>
-                                    </div>
-                                </button>
-                                <button
-                                    onClick={(e)=>{e.stopPropagation();toggleFavorite(t.tableId);}}
-                                    className={`ml-1 p-1 rounded-md opacity-0 group-hover:opacity-100 transition-opacity ${isFav?'text-yellow-500 dark:text-yellow-400 hover:text-yellow-600 dark:hover:text-yellow-300':'text-muted-foreground hover:text-foreground'}`}
-                                >
-                                    <Bookmark className="h-3 w-3" fill={isFav?"currentColor":"none"}/>
-                                </button>
-                            </li>
-                        );
-                    })}
-                </ul>
-            </ScrollArea>
+<ScrollArea className="h-full pb-4">
+  <ul className="space-y-0.5 pr-2">
+    {displayTables.map((t) => {
+      const isFav = favoriteTables.includes(t.tableId);
+      return (
+        <li key={t.tableId} className="flex items-center group">
+          {/* Table name button */}
+          <button
+            onClick={() => handleTableSelect(t.tableId)}
+            className={`
+              flex-grow px-2 py-1.5 rounded-md text-left truncate text-xs
+              transition-colors duration-150 ease-in-out
+              ${selectedTableId === t.tableId
+                ? 'bg-primary text-primary-foreground font-medium'
+                : 'text-foreground hover:bg-muted'}
+            `}
+          >
+            <div className="flex items-center gap-1.5">
+              <Database
+                className="h-3 w-3 flex-shrink-0 text-muted-foreground group-hover:text-foreground"
+              />
+              <span className="truncate">{t.tableId}</span>
+            </div>
+          </button>
+
+          {/* Favorite toggle */}
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              toggleFavorite(t.tableId);
+            }}
+            className={`
+              ml-1 p-1 rounded-md opacity-0 group-hover:opacity-100 transition-opacity
+              ${isFav
+                ? 'text-yellow-500 dark:text-yellow-400 hover:text-yellow-600 dark:hover:text-yellow-300'
+                : 'text-muted-foreground hover:text-foreground'}
+            `}
+          >
+            <Bookmark
+              className="h-3 w-3"
+              fill={isFav ? 'currentColor' : 'none'}
+            />
+          </button>
+
+          {/* Delete button, only for admins */}
+          {isAdmin && (
+            <AlertDialog>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <AlertDialogTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="
+                        h-[calc(1.5rem+3px)] w-7 p-1 opacity-0 group-hover:opacity-100
+                        focus-visible:opacity-100 transition-opacity rounded-r-md
+                        text-destructive/80 hover:text-destructive hover:bg-destructive/10
+                      "
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </AlertDialogTrigger>
+                </TooltipTrigger>
+                <TooltipContent side="right">Delete Table</TooltipContent>
+              </Tooltip>
+
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Confirm Deletion</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Are you sure you want to permanently delete the table
+                    <strong className="mx-1">{t.tableId}</strong>
+                    from the workspace
+                    <strong className="mx-1">{selectedDatasetId}</strong>?
+                    <br />
+                    This action cannot be undone.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDeleteTable(selectedDatasetId, t.tableId);
+                    }}
+                    className={cn(buttonVariants({ variant: 'default' }))}
+                  >
+                    Delete Table
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          )}
+        </li>
+      );
+    })}
+  </ul>
+</ScrollArea>
+
         );
     };
     const renderFavoritesList = () => { /* ... NO CHANGES ... */
