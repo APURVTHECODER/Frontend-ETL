@@ -4,7 +4,7 @@ import Editor from '@monaco-editor/react'
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import axiosInstance from '@/lib/axios-instance';
-import { format, parseISO, isValid as isValidDate } from 'date-fns';
+import { format, parseISO, isValid } from 'date-fns';
 import { ChatbotWindow } from "@/components/chatbot/ChatbotWindow";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import {
@@ -226,7 +226,7 @@ const formatDisplayDateYYYYMMDD = (dateString: string | null | undefined): strin
     try {
         // parseISO handles various ISO 8601 formats including timezone offsets
         const parsedDate = parseISO(dateString);
-        if (isValidDate(parsedDate)) {
+        if (isValid(parsedDate)) {
             // Format to YYYY-MM-DD
             return format(parsedDate, 'yyyy-MM-dd');
         } else {
