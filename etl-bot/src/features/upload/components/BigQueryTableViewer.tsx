@@ -1899,7 +1899,7 @@ const renderEditorPane = () => {
                             <TooltipContent side="bottom" className="text-xs bg-popover shadow-lg">Toggle AI Query Builder</TooltipContent>
                         </Tooltip>
                     </TooltipProvider>
-                    <ThemeToggle />
+                    {/* <ThemeToggle /> */}
                 </div>
                 <Button 
                     onClick={submitSqlJob} 
