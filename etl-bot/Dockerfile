@@ -3,7 +3,7 @@ FROM node:18-alpine as build
 
 WORKDIR /app
 
-# --- Define ARGs to receive values from docker build command ---
+# Build args
 ARG VITE_FIREBASE_API_KEY
 ARG VITE_FIREBASE_AUTH_DOMAIN
 ARG APPID
@@ -13,9 +13,7 @@ ARG PROJECTID
 ARG STORAGEBUCKET
 ARG VITE_API_BASE_URL
 
-# --- End ARGs ---
-
-# --- Set ENV vars FROM the ARGs ---
+# Pass them into Vite
 ENV VITE_FIREBASE_API_KEY=$VITE_FIREBASE_API_KEY
 ENV VITE_FIREBASE_AUTH_DOMAIN=$VITE_FIREBASE_AUTH_DOMAIN
 ENV VITE_APPID=$APPID
@@ -25,30 +23,17 @@ ENV VITE_PROJECTID=$PROJECTID
 ENV VITE_STORAGEBUCKET=$STORAGEBUCKET
 ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
 
-# Copy package files and install dependencies, including devDependencies
 COPY package.json package-lock.json ./
 RUN npm ci
 
-# Copy the rest of the application code
 COPY . .
-
-# Build the application
 RUN npm run build
 
-# Stage 2: Serve static files using Node.js
-FROM node:18-alpine as production
+# Stage 2: Serve with NGINX (SPA fallback)
+FROM nginx:alpine as production
 
-WORKDIR /app
-
-# Install a simple static file server (http-server)
-RUN npm install -g http-server
-
-# Copy the built files from the build stage
+COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app/dist /usr/share/nginx/html
 
-# Expose port 3000 (or another port if necessary)
 EXPOSE 80
-
-# Start the static file server
-# CMD ["http-server", "/usr/share/nginx/html", "-p", "3000"]
-CMD ["http-server","/usr/share/nginx/html","-p","80","--fallback", "index.html"]
+# NGINX auto-starts in this base image
