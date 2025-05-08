@@ -51,4 +51,4 @@ EXPOSE 80
 
 # Start the static file server
 # CMD ["http-server", "/usr/share/nginx/html", "-p", "3000"]
-CMD ["http-server","/usr/share/nginx/html","-p","80"]
+CMD ["http-server","/usr/share/nginx/html","-p","80","--fallback", "index.html"]
