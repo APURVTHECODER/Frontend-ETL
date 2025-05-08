@@ -2746,7 +2746,7 @@ const renderEditorPane = () => {
                                 <Tooltip><TooltipTrigger asChild><Button variant={currentSidebarTab==='schema'?'secondary':'ghost'} size="icon" className="h-7 w-7" onClick={()=>{setCurrentSidebarTab('schema'); setSidebarCollapsed(false);}}><ListTree className="h-4 w-4"/></Button></TooltipTrigger><TooltipContent side="right">Schema</TooltipContent></Tooltip>
                             </div>
                         ) : (
-                           <div className="h-full">
+                            <div className="flex-grow flex flex-col overflow-hidden">
                               {renderSidebarContent()} {/* Render the full sidebar */}
                            </div>
                         )}
