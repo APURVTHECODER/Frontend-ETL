@@ -1,11 +1,22 @@
 import React, { useEffect, useState, useRef, useCallback, useMemo } from "react"; // Added useMemo
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import Editor from '@monaco-editor/react'
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import axiosInstance from '@/lib/axios-instance';
 import { ChatbotWindow } from "@/components/chatbot/ChatbotWindow";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+    AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
     Loader2, Terminal, Search, Database, BrainCircuit, ListTree, Bookmark,
@@ -15,7 +26,7 @@ import {
     LineChart as LineChartIcon, PieChart as PieChartIcon, Dot , Trash2 ,History,Copy,
     ListFilter, // Added Filter icon
     MessageSquare,X,
-    FileSpreadsheet, Clock ,Sparkles , LightbulbIcon , AlertCircle , Play
+    FileSpreadsheet, Clock ,Sparkles , LightbulbIcon , AlertCircle , Play ,Settings2,Check,ChevronsUpDown,CheckCheck
 } from "lucide-react";
 import * as htmlToImage from 'html-to-image';
 import { useToast } from "@/hooks/use-toast"
@@ -39,6 +50,7 @@ import { saveAs } from 'file-saver';
 import { FilterConfig, ActiveFilters, ActiveFilterValue, FilterType } from '@/components/filters/filterTypes';
 import { parseISO, isValid } from 'date-fns'; // Import date-fns for parsing
 import { FilterControls } from "@/components/filters/FilterControls";
+// import { ThemeToggle } from "./ThemeToggle";
 // --- Interfaces (Keep existing ones) ---
 
 interface BackendChartConfig {
@@ -101,6 +113,18 @@ type ActiveVisualizationConfig = {
     rationale?: string;
   };
 const BigQueryTableViewer: React.FC = () => {
+      const { userProfile,  } = useAuth();
+      const isAdmin = userProfile?.role === 'admin';
+    const getErrorMessage = useCallback((error: any): string => { 
+        {
+            const d=error.response?.data; if(d && typeof d==='object' && 'detail' in d)return String(d.detail);
+             if(typeof d==='string')
+                return d; return error.message;
+            } 
+            if(error instanceof Error)
+                return error.message; 
+            return"An unknown error occurred."; 
+        }, []);
     // SecondTeam
     // process.env.NEXT_PUBLIC_GCP_PROJECT_ID || 
     const projectId = "crafty-tracker-457215-g6";
@@ -116,6 +140,15 @@ const BigQueryTableViewer: React.FC = () => {
     const { toast } = useToast(); // Initialize toast
     // --- State Variables (Keep existing ones) ---
     const [tables, setTables] = useState<TableInfo[]>([]);
+        // +++ MODIFICATION START: Add userRole state +++
+        // +++ MODIFICATION END +++
+    // +++ MODIFICATION START: State for AI Mode and Selections +++
+    const [aiMode, setAiMode] = useState<'AUTO' | 'SEMI_AUTO'>('AUTO');
+    const [selectedAiTables, setSelectedAiTables] = useState<Set<string>>(new Set());
+    const [selectedAiColumns, setSelectedAiColumns] = useState<Set<string>>(new Set());
+    const [isTablePopoverOpen, setIsTablePopoverOpen] = useState(false);
+    const [isColumnPopoverOpen, setIsColumnPopoverOpen] = useState(false);
+// +++ MODIFICATION END +++
     const [filteredTables, setFilteredTables] = useState<TableInfo[]>([]);
     const [listTablesError, setListTablesError] = useState<string>("");
     const [selectedTableId, setSelectedTableId] = useState<string | null>(null);
@@ -210,7 +243,36 @@ const BigQueryTableViewer: React.FC = () => {
 // Inside BigQueryTableViewer component
 
 // ... other functions like fetchTables, submitSqlJob etc ...
+// +++ MODIFICATION START: Derive available columns for SEMI_AUTO mode +++
+// --- START: Added useMemo Hook ---
 
+interface AvailableColumnOption {
+    value: string;
+    label: string;
+    tableName: string;
+  }
+
+
+const availableColumnsForSelection = useMemo(() => {
+    if (aiMode !== 'SEMI_AUTO' || selectedAiTables.size === 0 || !schemaData) {
+        return [];
+    }
+    const columns: AvailableColumnOption[] = [];
+    schemaData.tables.forEach(table => {
+        if (selectedAiTables.has(table.table_id)) {
+            table.columns.forEach(col => {
+                columns.push({
+                    value: col.name,
+                    label: `${table.table_id}.${col.name}`,
+                    tableName: table.table_id,
+                });
+            });
+        }
+    });
+    return columns.sort((a, b) => a.label.localeCompare(b.label));
+}, [aiMode, selectedAiTables, schemaData]);
+// --- END: Added useMemo Hook ---
+ // +++ MODIFICATION END +++
 // +++ Function to Fetch Prompt Suggestions +++
 const fetchPromptSuggestions = useCallback(async (currentPrompt: string) => {
     if (currentPrompt.trim().length < 3) { // Minimum length to trigger suggestions
@@ -247,6 +309,36 @@ const fetchPromptSuggestions = useCallback(async (currentPrompt: string) => {
         setIsLoadingSuggestions(false);
     }
 }, []); // Dependency array is empty as it uses state setters and useCallback
+const fetchSchema = useCallback(async () => {
+    // +++ Refined Guard Clause (Similar to fetchTables) +++
+    if (!fullDatasetId || !fullDatasetId.includes('.')) {
+        console.warn(`Skipping fetchSchema: Invalid or empty fullDatasetId ('${fullDatasetId}')`);
+        setSchemaData(null);
+        setLoadingSchema(false);
+        setSchemaError(""); // Clear schema error if skipping
+        return; // Exit early
+    }
+    // +++ End Refined Guard Clause +++
+
+    console.log(`Fetching schema for dataset: ${fullDatasetId}`);
+    setLoadingSchema(true);
+    setSchemaError("");
+    setSchemaData(null);
+    try {
+        const url = `/api/bigquery/schema?dataset_id=${encodeURIComponent(fullDatasetId)}`;
+        console.log(`Calling Schema API: ${url}`); // Log the exact URL
+        const r = await axiosInstance.get<SchemaResponse>(url);
+        setSchemaData(r.data);
+    } catch(e){
+        console.error("Error fetching schema:", e);
+        const errorMessage = getErrorMessage(e);
+        console.error(`Full error message received in fetchSchema: ${errorMessage}`); // Log the specific error
+        setSchemaError(`Load schema failed: ${errorMessage}`);
+    } finally {
+        setLoadingSchema(false);
+    }
+ // Dependencies: Correctly includes fullDatasetId
+}, [fullDatasetId, getErrorMessage]);
 
 // +++ Handle Prompt Input Change with Debouncing +++
 const handlePromptChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -284,6 +376,60 @@ const handleSuggestionClick = useCallback((suggestion: string) => {
     promptInputRef.current?.focus(); // Optional: refocus the input
 }, []);
 
+
+const handleDeleteTable = useCallback(async (datasetIdToDeleteFrom: string, tableIdToDelete: string) => {
+    if (!datasetIdToDeleteFrom) {
+         toast({ title: "Error", description: "Dataset ID missing for deletion.", variant: "destructive" });
+         return;
+    }
+     // Use AlertDialog for confirmation (preferred) or window.confirm
+     // const confirmed = window.confirm(`Are you sure you want to permanently delete the table "${tableIdToDelete}" from workspace "${datasetIdToDeleteFrom}"? This action cannot be undone.`);
+     // if (!confirmed) {
+     //     return;
+     // }
+
+    console.log(`Attempting to delete table: ${tableIdToDelete} from dataset: ${datasetIdToDeleteFrom}`);
+    // Consider adding a loading state for the specific table being deleted
+    try {
+        await axiosInstance.delete(`/api/bigquery/datasets/${encodeURIComponent(datasetIdToDeleteFrom)}/tables/${encodeURIComponent(tableIdToDelete)}`);
+
+        toast({
+            title: "Table Deleted",
+            description: `Table "${tableIdToDelete}" has been successfully deleted.`,
+            variant: "default", // Use success variant if available
+        });
+
+        // Update UI state
+        setTables(prev => prev.filter(t => t.tableId !== tableIdToDelete));
+        setFilteredTables(prev => prev.filter(t => t.tableId !== tableIdToDelete));
+        if (selectedTableId === tableIdToDelete) {
+            // Reset selection if the deleted table was selected
+            setSelectedTableId(null);
+            setPreviewRows([]);
+            setPreviewColumns([]);
+            setPreviewTotalRows(0);
+            setPreviewError("");
+            setTableStats(null);
+            setSql(`-- Table ${tableIdToDelete} deleted. Select another table or use AI ✨`);
+            setCurrentOutputTab('data'); // Switch back to data/preview tab
+        }
+        // Refresh schema data as well? Optional, depends on how often schema is used elsewhere.
+        fetchSchema(); // Refresh schema after deletion might be good
+
+    } catch (error: any) {
+        console.error(`Failed to delete table ${tableIdToDelete}:`, error);
+        const errorMessage = getErrorMessage(error);
+        toast({
+            title: "Deletion Failed",
+            description: `Could not delete table "${tableIdToDelete}": ${errorMessage}`,
+            variant: "destructive",
+        });
+    } finally {
+        // Reset loading state if implemented
+    }
+}, [selectedTableId, toast, getErrorMessage, fetchSchema]); // Add dependencies if needed
+
+
 // +++ Handle Clicking Outside to Hide Suggestions +++
 useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -310,16 +456,7 @@ useEffect(() => {
 
 
 // ... rest of the component ...
-    const getErrorMessage = useCallback((error: any): string => { 
-        {
-            const d=error.response?.data; if(d && typeof d==='object' && 'detail' in d)return String(d.detail);
-             if(typeof d==='string')
-                return d; return error.message;
-            } 
-            if(error instanceof Error)
-                return error.message; 
-            return"An unknown error occurred."; 
-        }, []);
+
     const formatBytes = useCallback((bytes: number | null | undefined): string => { if(bytes==null||bytes===undefined||bytes===0)return"0 Bytes"; const k=1024,s=["Bytes","KB","MB","GB","TB"],i=Math.floor(Math.log(bytes)/Math.log(k)); return parseFloat((bytes/Math.pow(k,i)).toFixed(2))+" "+s[i]; }, []);
     const formatDate = useCallback((dateString: string | null | undefined): string => { if(!dateString)return"N/A"; try{return new Date(dateString).toLocaleString();}catch(e){return dateString;} }, []);
     const copyToClipboard = useCallback((text: string, message: string = "Copied!"): void => { navigator.clipboard.writeText(text).then(()=>{console.log(message); /* TODO: Add toast */}).catch(err=>{console.error("Copy failed:",err);}); }, []);
@@ -841,67 +978,90 @@ const handleExcelDownload = useCallback(async () => {
     const handlePreviewSort = useCallback((columnName: string) => { let d:"asc"|"desc"="asc"; if(previewSortConfig?.key===columnName&&previewSortConfig.direction==="asc")d="desc"; setPreviewSortConfig({key:columnName,direction:d}); const s=[...previewRows].sort((a,b)=>{ const valA=a[columnName], valB=b[columnName]; if(valA==null)return 1; if(valB==null)return -1; if(valA<valB)return d==="asc"?-1:1; if(valA>valB)return d==="asc"?1:-1; return 0; }); setPreviewRows(s);}, [previewSortConfig, previewRows]);
     
     
-    const fetchSchema = useCallback(async () => {
-        // +++ Refined Guard Clause (Similar to fetchTables) +++
-        if (!fullDatasetId || !fullDatasetId.includes('.')) {
-            console.warn(`Skipping fetchSchema: Invalid or empty fullDatasetId ('${fullDatasetId}')`);
-            setSchemaData(null);
-            setLoadingSchema(false);
-            setSchemaError(""); // Clear schema error if skipping
-            return; // Exit early
-        }
-        // +++ End Refined Guard Clause +++
 
-        console.log(`Fetching schema for dataset: ${fullDatasetId}`);
-        setLoadingSchema(true);
-        setSchemaError("");
-        setSchemaData(null);
-        try {
-            const url = `/api/bigquery/schema?dataset_id=${encodeURIComponent(fullDatasetId)}`;
-            console.log(`Calling Schema API: ${url}`); // Log the exact URL
-            const r = await axiosInstance.get<SchemaResponse>(url);
-            setSchemaData(r.data);
-        } catch(e){
-            console.error("Error fetching schema:", e);
-            const errorMessage = getErrorMessage(e);
-            console.error(`Full error message received in fetchSchema: ${errorMessage}`); // Log the specific error
-            setSchemaError(`Load schema failed: ${errorMessage}`);
-        } finally {
-            setLoadingSchema(false);
-        }
-     // Dependencies: Correctly includes fullDatasetId
-    }, [fullDatasetId, getErrorMessage]);
+// +++ MODIFICATION START: Add effect for clearing columns +++
+// Effect to clear selected columns when selected tables change
+useEffect(() => {
+    setSelectedAiColumns(new Set());
+}, [selectedAiTables]);
+ // +++ MODIFICATION END +++
 
+// Modify the dataset change effect
+useEffect(() => {
+    if (selectedDatasetId) {
+        // ... (reset other state like tables, schema, jobs, etc.) ...
 
+         // +++ MODIFICATION START: Reset AI selections on dataset change +++
+         setAiMode('AUTO');
+         setSelectedAiTables(new Set());
+         setSelectedAiColumns(new Set());
+         // +++ MODIFICATION END +++
+
+        fetchTables();
+        fetchSchema();
+    }
+}, [selectedDatasetId, fetchTables, fetchSchema]); // Dependencies unchanged
     
     // --- MODIFIED handleGenerateSql callback ---
-    const handleGenerateSql = useCallback(async () => {
-        const currentPrompt = nlPrompt.trim();
-         if (!currentPrompt) {
-             setNlError("Please enter a query description.");
-             return;
-         }
-         // --- START specific modification ---
-         // Ensure a dataset is selected (API needs it). Table selection is handled by disabling UI.
-         if (!selectedDatasetId) {
-             setNlError("Please select a workspace first.");
-             return;
-         }
-         // --- END specific modification ---
+// --- START: Refactored handleGenerateSql Callback ---
+const handleGenerateSql = useCallback(async () => {
+    const currentPrompt = nlPrompt.trim();
+    if (!currentPrompt) { setNlError("Please enter a query description."); return; }
+    if (!selectedDatasetId) { setNlError("Please select a workspace first."); return; }
 
-         setGeneratingSql(true); setNlError(""); setJobError(""); /* ... reset other states ... */
-         setLastUserPrompt(currentPrompt);
-         try {
-             // ... (API call to /api/bigquery/nl2sql) ...
-             const r=await axiosInstance.post<NLQueryResponse>('/api/bigquery/nl2sql',{prompt:nlPrompt,dataset_id:fullDatasetId}); if(r.data.error){setNlError(r.data.error);} else if(r.data.generated_sql){setSql(r.data.generated_sql); setNlPrompt("");} else {setNlError("AI did not return valid SQL.");}
-         } catch(e){
-             // ... (Error handling) ...
-              setNlError(`Generate SQL failed: ${getErrorMessage(e)}`);
-         } finally {
-             setGeneratingSql(false);
-         }
-     }, [nlPrompt, fullDatasetId, selectedDatasetId, stopPolling, getErrorMessage]); // Added selectedDatasetId to dependencies
+    // SEMI_AUTO Mode Validation
+    if (aiMode === 'SEMI_AUTO' && selectedAiTables.size === 0) {
+        setNlError("SEMI-AUTO mode requires at least one table selection.");
+        return;
+    }
 
+    setGeneratingSql(true); setNlError(""); setJobError("");
+    setJobId(null); setJobLocation(null); setJobStatus(null); setJobResults(null);
+    setActiveFilters({}); setActiveVisualization(null); setSuggestedCharts([]);
+    setAiSummary(null); setAiSummaryError(null); setLoadingAiSummary(false);
+    setLastUserPrompt(currentPrompt);
+
+    try {
+        const payload: any = {
+            prompt: currentPrompt,
+            dataset_id: fullDatasetId,
+            ai_mode: aiMode,
+        };
+
+        if (aiMode === 'SEMI_AUTO') {
+            payload.selected_tables = Array.from(selectedAiTables);
+            if (selectedAiColumns.size > 0) {
+                payload.selected_columns = Array.from(selectedAiColumns);
+            }
+            console.log("Sending SEMI_AUTO payload:", payload);
+        } else {
+             console.log("Sending AUTO payload:", payload);
+        }
+
+        const r = await axiosInstance.post<NLQueryResponse>('/api/bigquery/nl2sql', payload);
+
+        if (r.data.error) {
+            setNlError(r.data.error);
+            setSql(`-- AI Error: ${r.data.error}\n-- Your prompt: ${currentPrompt}`);
+        } else if (r.data.generated_sql) {
+            setSql(r.data.generated_sql);
+             toast({ title: "SQL Generated", description: "Review the query and click 'Run Query'.", variant: "default" });
+        } else {
+            setNlError("AI did not return valid SQL.");
+             setSql(`-- AI returned no SQL.\n-- Your prompt: ${currentPrompt}`);
+        }
+    } catch (e: any) {
+        const errorMsg = `Generate SQL failed: ${getErrorMessage(e)}`;
+        setNlError(errorMsg);
+         setSql(`-- Failed to generate SQL: ${errorMsg}\n-- Your prompt: ${currentPrompt}`);
+    } finally {
+        setGeneratingSql(false);
+    }
+}, [
+    nlPrompt, fullDatasetId, selectedDatasetId, getErrorMessage, stopPolling, toast,
+    aiMode, selectedAiTables, selectedAiColumns // New dependencies
+]);
+// --- END: Refactored handleGenerateSql Callback ---
 
 
 // Add this useEffect for initial dataset loading
@@ -1343,33 +1503,106 @@ useEffect(() => {
         const displayTables = filteredTables.filter(t => t.tableId.toLowerCase().includes(tableSearchQuery.toLowerCase()));
         if(displayTables.length===0){return(<div className="text-center py-8 text-muted-foreground text-sm">No tables found{tableSearchQuery&&` matching "${tableSearchQuery}"`}.</div>);}
         return(
-            <ScrollArea className="h-full pb-4">
-                <ul className="space-y-0.5 pr-2">
-                    {displayTables.map((t)=>{
-                        const isFav=favoriteTables.includes(t.tableId);
-                        return(
-                            <li key={t.tableId} className="flex items-center group">
-                                {/* Apply standard hover/active styles */}
-                                <button
-                                    onClick={()=>handleTableSelect(t.tableId)}
-                                    className={`flex-grow px-2 py-1.5 rounded-md text-left truncate text-xs transition-colors duration-150 ease-in-out ${selectedTableId===t.tableId?'bg-primary text-primary-foreground font-medium':'text-foreground hover:bg-muted'}`}
-                                >
-                                    <div className="flex items-center gap-1.5">
-                                        <Database className="h-3 w-3 flex-shrink-0 text-muted-foreground group-hover:text-foreground"/>
-                                        <span className="truncate">{t.tableId}</span>
-                                    </div>
-                                </button>
-                                <button
-                                    onClick={(e)=>{e.stopPropagation();toggleFavorite(t.tableId);}}
-                                    className={`ml-1 p-1 rounded-md opacity-0 group-hover:opacity-100 transition-opacity ${isFav?'text-yellow-500 dark:text-yellow-400 hover:text-yellow-600 dark:hover:text-yellow-300':'text-muted-foreground hover:text-foreground'}`}
-                                >
-                                    <Bookmark className="h-3 w-3" fill={isFav?"currentColor":"none"}/>
-                                </button>
-                            </li>
-                        );
-                    })}
-                </ul>
-            </ScrollArea>
+<ScrollArea className="h-full pb-4">
+  <ul className="space-y-0.5 pr-2">
+    {displayTables.map((t) => {
+      const isFav = favoriteTables.includes(t.tableId);
+      return (
+        <li key={t.tableId} className="flex items-center group">
+          {/* Table name button */}
+          <button
+            onClick={() => handleTableSelect(t.tableId)}
+            className={`
+              flex-grow px-2 py-1.5 rounded-md text-left truncate text-xs
+              transition-colors duration-150 ease-in-out
+              ${selectedTableId === t.tableId
+                ? 'bg-primary text-primary-foreground font-medium'
+                : 'text-foreground hover:bg-muted'}
+            `}
+          >
+            <div className="flex items-center gap-1.5">
+              <Database
+                className="h-3 w-3 flex-shrink-0 text-muted-foreground group-hover:text-foreground"
+              />
+              <span className="truncate">{t.tableId}</span>
+            </div>
+          </button>
+
+          {/* Favorite toggle */}
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              toggleFavorite(t.tableId);
+            }}
+            className={`
+              ml-1 p-1 rounded-md opacity-0 group-hover:opacity-100 transition-opacity
+              ${isFav
+                ? 'text-yellow-500 dark:text-yellow-400 hover:text-yellow-600 dark:hover:text-yellow-300'
+                : 'text-muted-foreground hover:text-foreground'}
+            `}
+          >
+            <Bookmark
+              className="h-3 w-3"
+              fill={isFav ? 'currentColor' : 'none'}
+            />
+          </button>
+
+          {/* Delete button, only for admins */}
+          {isAdmin && (
+            <AlertDialog>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <AlertDialogTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="
+                        h-[calc(1.5rem+3px)] w-7 p-1 opacity-0 group-hover:opacity-100
+                        focus-visible:opacity-100 transition-opacity rounded-r-md
+                        text-destructive/80 hover:text-destructive hover:bg-destructive/10
+                      "
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </AlertDialogTrigger>
+                </TooltipTrigger>
+                <TooltipContent side="right">Delete Table</TooltipContent>
+              </Tooltip>
+
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Confirm Deletion</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Are you sure you want to permanently delete the table
+                    <strong className="mx-1">{t.tableId}</strong>
+                    from the workspace
+                    <strong className="mx-1">{selectedDatasetId}</strong>?
+                    <br />
+                    This action cannot be undone.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDeleteTable(selectedDatasetId, t.tableId);
+                    }}
+                    className={cn(buttonVariants({ variant: 'default' }))}
+                  >
+                    Delete Table
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          )}
+        </li>
+      );
+    })}
+  </ul>
+</ScrollArea>
+
         );
     };
     const renderFavoritesList = () => { /* ... NO CHANGES ... */
@@ -1562,16 +1795,165 @@ useEffect(() => {
 // Inside BigQueryTableViewer component -> renderEditorPane function
 
 const renderEditorPane = () => {
+    // Helper to render the multi-select popover for Tables
+    const renderTableSelector = () => (
+        <Popover open={isTablePopoverOpen} onOpenChange={setIsTablePopoverOpen}>
+            <PopoverTrigger asChild>
+                <Button
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={isTablePopoverOpen}
+                    className="w-[250px] justify-between text-xs h-8 transition-all duration-200 hover:border-primary/50 focus:ring-2 focus:ring-primary/20"
+                    disabled={!tables || tables.length === 0}
+                >
+                    <span className="truncate font-medium">
+                        {selectedAiTables.size > 0
+                            ? `${selectedAiTables.size} table(s) selected`
+                            : "Select tables..."}
+                    </span>
+                    <ChevronsUpDown className="ml-2 h-3 w-3 shrink-0 opacity-50" />
+                </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-[280px] p-0 shadow-lg border-primary/10">
+                <Command className="rounded-md">
+                    <CommandInput placeholder="Search tables..." className="h-9 text-xs font-medium" />
+                    <CommandList className="max-h-[200px]">
+                        <CommandEmpty>No tables found.</CommandEmpty>
+                        <CommandGroup>
+                            {tables.map((table) => (
+                                <CommandItem
+                                    key={table.tableId}
+                                    value={table.tableId}
+                                    onSelect={(currentValue) => {
+                                        setSelectedAiTables(prev => {
+                                            const next = new Set(prev);
+                                            if (next.has(currentValue)) {
+                                                next.delete(currentValue);
+                                            } else {
+                                                next.add(currentValue);
+                                            }
+                                            return next;
+                                        });
+                                    }}
+                                    className="text-xs py-2 hover:bg-primary/5 focus:bg-primary/10 cursor-pointer"
+                                >
+                                    <Check
+                                        className={cn(
+                                            "mr-2 h-3.5 w-3.5 text-primary",
+                                            selectedAiTables.has(table.tableId) ? "opacity-100" : "opacity-0"
+                                        )}
+                                    />
+                                    <span className="font-medium truncate">{table.tableId}</span>
+                                </CommandItem>
+                            ))}
+                        </CommandGroup>
+                        {selectedAiTables.size > 0 && (
+                            <>
+                                <CommandSeparator className="my-1" />
+                                <CommandGroup>
+                                    <CommandItem
+                                        onSelect={() => {
+                                            setSelectedAiTables(new Set());
+                                        }}
+                                        className="text-xs text-destructive justify-center py-2 hover:bg-destructive/5"
+                                    >
+                                        <X className="h-3.5 w-3.5 mr-2" />
+                                        Clear selection
+                                    </CommandItem>
+                                </CommandGroup>
+                            </>
+                        )}
+                    </CommandList>
+                </Command>
+            </PopoverContent>
+        </Popover>
+    );
+
+    // Helper to render the multi-select popover for Columns
+    const renderColumnSelector = () => (
+        <Popover open={isColumnPopoverOpen} onOpenChange={setIsColumnPopoverOpen}>
+            <PopoverTrigger asChild>
+                <Button
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={isColumnPopoverOpen}
+                    className="w-[250px] justify-between text-xs h-8 transition-all duration-200 hover:border-primary/50 focus:ring-2 focus:ring-primary/20"
+                    disabled={availableColumnsForSelection.length === 0}
+                >
+                    <span className="truncate font-medium">
+                        {selectedAiColumns.size > 0
+                            ? `${selectedAiColumns.size} column(s) selected`
+                            : "Select columns (optional)..."}
+                    </span>
+                    <ChevronsUpDown className="ml-2 h-3 w-3 shrink-0 opacity-50" />
+                </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-[280px] p-0 shadow-lg border-primary/10">
+                <Command className="rounded-md">
+                    <CommandInput placeholder="Search columns..." className="h-9 text-xs font-medium" />
+                    <CommandList className="max-h-[200px]">
+                        <CommandEmpty>No columns available.</CommandEmpty>
+                        <CommandGroup>
+                            {availableColumnsForSelection.map((col) => (
+                                <CommandItem
+                                    key={col.label}
+                                    value={col.value}
+                                    onSelect={(currentValue) => {
+                                        setSelectedAiColumns(prev => {
+                                            const next = new Set(prev);
+                                            if (next.has(currentValue)) {
+                                                next.delete(currentValue);
+                                            } else {
+                                                next.add(currentValue);
+                                            }
+                                            return next;
+                                        });
+                                    }}
+                                    className="text-xs py-2 hover:bg-primary/5 focus:bg-primary/10 cursor-pointer"
+                                    title={col.label}
+                                >
+                                    <Check
+                                        className={cn(
+                                            "mr-2 h-3.5 w-3.5 text-primary",
+                                            selectedAiColumns.has(col.value) ? "opacity-100" : "opacity-0"
+                                        )}
+                                    />
+                                    <span className="truncate font-medium">{col.label}</span>
+                                </CommandItem>
+                            ))}
+                        </CommandGroup>
+                        {selectedAiColumns.size > 0 && (
+                            <>
+                                <CommandSeparator className="my-1" />
+                                <CommandGroup>
+                                    <CommandItem
+                                        onSelect={() => {
+                                            setSelectedAiColumns(new Set());
+                                        }}
+                                        className="text-xs text-destructive justify-center py-2 hover:bg-destructive/5"
+                                    >
+                                        <X className="h-3.5 w-3.5 mr-2" />
+                                        Clear column selection
+                                    </CommandItem>
+                                </CommandGroup>
+                            </>
+                        )}
+                    </CommandList>
+                </Command>
+            </PopoverContent>
+        </Popover>
+    );
+
     return (
         <div 
             ref={editorPaneRef} 
-            className="flex flex-col border border-border rounded-md shadow-sm overflow-hidden bg-muted/20" 
+            className="flex flex-col border border-border rounded-lg shadow-md overflow-hidden bg-muted/10" 
             style={{ height: `${editorPaneHeight}px` }}
         >
             {/* Top bar: SQL Editor title, AI Assist toggle, Run Query button */}
-            <div className="px-3 py-2 bg-background border-b border-border flex justify-between items-center h-10 flex-shrink-0">
+            <div className="px-4 py-2.5 bg-background border-b border-border flex justify-between items-center h-12 flex-shrink-0">
                 <div className="flex items-center gap-3">
-                    <span className="font-medium text-sm flex items-center gap-1.5 text-foreground">
+                    <span className="font-semibold text-sm flex items-center gap-2 text-foreground">
                         <Code className="h-4 w-4 text-primary"/> 
                         <span>SQL Editor</span>
                     </span>
@@ -1581,36 +1963,99 @@ const renderEditorPane = () => {
                                 <Button 
                                     variant={showNlSection ? "secondary" : "ghost"} 
                                     size="sm" 
-                                    className="h-7 px-2.5 transition-colors duration-200" 
+                                    className={cn(
+                                        "h-8 px-3 transition-all duration-300",
+                                        showNlSection ? "bg-primary/15 text-primary hover:bg-primary/20" : "hover:bg-muted"
+                                    )}
                                     onClick={() => setShowNlSection(!showNlSection)}
                                 >
-                                    <BrainCircuit className="h-3.5 w-3.5 mr-1.5"/> 
-                                    <span>AI Assist</span>
+                                    <BrainCircuit className="h-4 w-4 mr-2"/> 
+                                    <span className="font-medium">AI Assist</span>
                                 </Button>
                             </TooltipTrigger>
-                            <TooltipContent side="bottom" className="text-xs">Toggle AI Query Builder</TooltipContent>
+                            <TooltipContent side="bottom" className="text-xs bg-popover shadow-lg">Toggle AI Query Builder</TooltipContent>
                         </Tooltip>
                     </TooltipProvider>
+                    {/* <ThemeToggle /> */}
                 </div>
                 <Button 
                     onClick={submitSqlJob} 
                     disabled={isRunningJob || !sql.trim()} 
                     size="sm" 
-                    className="h-7 px-3 font-medium transition-colors"
+                    className={cn(
+                        "h-8 px-4 font-medium transition-all duration-300",
+                        !isRunningJob && sql.trim() ? "bg-primary hover:bg-primary/90" : ""
+                    )}
                 >
                     {isRunningJob ? (
-                        <Loader2 className="mr-1.5 h-4 w-4 animate-spin"/> 
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin"/> 
                     ) : (
-                        <Play className="mr-1.5 h-3.5 w-3.5" />
-                    )} 
+                        <Play className="mr-2 h-4 w-4" />
+                    )}
                     Run Query
                 </Button>
             </div>
 
             {/* AI Assist Section */}
             {showNlSection && (
-                <div className="p-3 bg-background/50 border-b border-border flex-shrink-0 relative"> 
-                    <div className="flex gap-2 items-center">
+                <div className="p-4 bg-background/80 border-b border-border flex-shrink-0 relative transition-all duration-300"> 
+                    <div className="flex gap-3 items-center">
+                        <Select
+                            value={aiMode}
+                            onValueChange={(value: 'AUTO' | 'SEMI_AUTO') => {
+                                setAiMode(value);
+                                if (value === 'AUTO') {
+                                    setSelectedAiTables(new Set());
+                                    setSelectedAiColumns(new Set());
+                                }
+                                console.log("AI Mode changed to:", value);
+                            }}
+                            disabled={generatingSql || !selectedDatasetId}
+                        >
+                            <SelectTrigger className="w-[140px] h-9 text-xs flex-shrink-0 font-medium bg-background/80 transition-all duration-200 focus:ring-2 focus:ring-primary/20">
+                                <SelectValue placeholder="AI Mode" />
+                            </SelectTrigger>
+                            <SelectContent className="shadow-lg border-primary/10">
+                                {/* SelectItem AUTO */}
+                                <SelectItem value="AUTO" className="text-xs py-2 focus:bg-primary/10">
+                                    <div className="flex items-center justify-between w-full">
+                                        <div className="flex items-center gap-2">
+                                            <CheckCheck className="h-3.5 w-3.5 text-primary"/> 
+                                            <span className="font-medium">AUTO</span>
+                                        </div>
+                                        <TooltipProvider delayDuration={100}>
+                                            <Tooltip>
+                                                <TooltipTrigger onClick={(e) => e.stopPropagation()}>
+                                                    <Info className="h-3.5 w-3.5 opacity-50 hover:opacity-100 cursor-help"/>
+                                                </TooltipTrigger>
+                                                <TooltipContent side="right" className="text-xs max-w-xs bg-popover shadow-lg">
+                                                    AI considers all tables in the workspace.
+                                                </TooltipContent>
+                                            </Tooltip>
+                                        </TooltipProvider>
+                                    </div>
+                                </SelectItem>
+                                {/* SelectItem SEMI-AUTO */}
+                                <SelectItem value="SEMI_AUTO" className="text-xs py-2 focus:bg-primary/10">
+                                    <div className="flex items-center justify-between w-full">
+                                        <div className="flex items-center gap-2">
+                                            <Settings2 className="h-3.5 w-3.5 text-primary"/> 
+                                            <span className="font-medium">SEMI-AUTO</span>
+                                        </div>
+                                        <TooltipProvider delayDuration={100}>
+                                            <Tooltip>
+                                                <TooltipTrigger onClick={(e) => e.stopPropagation()}>
+                                                    <Info className="h-3.5 w-3.5 opacity-50 hover:opacity-100 cursor-help"/>
+                                                </TooltipTrigger>
+                                                <TooltipContent side="right" className="text-xs max-w-xs bg-popover shadow-lg">
+                                                    Manually select tables/columns for AI focus.
+                                                </TooltipContent>
+                                            </Tooltip>
+                                        </TooltipProvider>
+                                    </div>
+                                </SelectItem>
+                            </SelectContent>
+                        </Select>
                         <div className="relative flex-grow">
                             <Input
                                 ref={promptInputRef}
@@ -1622,43 +2067,63 @@ const renderEditorPane = () => {
                                         setShowSuggestions(true);
                                     }
                                 }}
-                                className="flex-grow text-xs h-8 pl-7 focus:ring-1 focus:ring-primary/30"
+                                className="flex-grow text-xs h-9 pl-9 pr-3 focus:ring-2 focus:ring-primary/20 font-medium transition-all duration-200 bg-background"
                                 disabled={generatingSql || !selectedTableId}
                                 title={!selectedTableId ? "Select table first." : ""}
                                 autoComplete="off"
                             />
-                            <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                         </div>
                         <Button 
                             onClick={handleGenerateSql} 
                             disabled={!nlPrompt.trim() || generatingSql || !selectedTableId} 
                             size="sm" 
                             variant="secondary" 
-                            className="text-xs h-8 px-3 whitespace-nowrap transition-all hover:bg-primary hover:text-primary-foreground"
+                            className={cn(
+                                "text-xs h-9 px-4 whitespace-nowrap transition-all duration-300 font-medium",
+                                nlPrompt.trim() && !generatingSql && selectedTableId ? 
+                                "hover:bg-primary hover:text-primary-foreground" : ""
+                            )}
                         >
                             {generatingSql ? (
-                                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin"/>
+                                <Loader2 className="mr-2 h-4 w-4 animate-spin"/>
                             ) : (
-                                <BrainCircuit className="mr-1.5 h-3.5 w-3.5"/>
+                                <BrainCircuit className="mr-2 h-4 w-4"/>
                             )} 
                             Generate SQL
                         </Button>
                     </div>
+                    
+                    {aiMode === 'SEMI_AUTO' && (
+                        <div className="flex gap-3 items-center pt-3 mt-1 border-t border-border/40">
+                            {/* Table Selector */}
+                            {renderTableSelector()}
+                            {/* Column Selector */}
+                            {renderColumnSelector()}
+                            {/* Optional hint text */}
+                            <span className="text-xs text-muted-foreground italic ml-2">
+                                Select tables and columns to focus your query
+                            </span>
+                        </div>
+                    )}
+                    
                     {nlError && (
-                        <p className="text-xs text-destructive mt-2 px-1 flex items-center">
-                            <AlertCircle className="h-3 w-3 mr-1" /> {nlError}
-                        </p>
+                        <div className="mt-3 p-2 bg-destructive/10 border border-destructive/20 rounded-md">
+                            <p className="text-xs text-destructive flex items-center">
+                                <AlertCircle className="h-3.5 w-3.5 mr-2 flex-shrink-0" /> {nlError}
+                            </p>
+                        </div>
                     )}
 
                     {/* Suggestions Dropdown */}
                     {showSuggestions && (
                         <div
                             ref={suggestionContainerRef}
-                            className="absolute top-full left-3 right-3 mt-1 z-50 bg-popover border border-border rounded-md shadow-md max-h-48 overflow-y-auto"
+                            className="absolute top-full left-4 right-4 mt-1 z-50 bg-popover border border-border rounded-md shadow-lg max-h-56 overflow-y-auto"
                         >
                             {isLoadingSuggestions ? (
-                                <div className="p-3 text-xs text-muted-foreground flex items-center justify-center">
-                                    <Loader2 className="h-3.5 w-3.5 animate-spin mr-2" /> Loading suggestions...
+                                <div className="p-4 text-xs text-muted-foreground flex items-center justify-center">
+                                    <Loader2 className="h-4 w-4 animate-spin mr-3" /> Loading suggestions...
                                 </div>
                             ) : promptSuggestions.length > 0 ? (
                                 <ul className="py-1">
@@ -1666,9 +2131,9 @@ const renderEditorPane = () => {
                                         <li key={index}>
                                             <button
                                                 onClick={() => handleSuggestionClick(suggestion)}
-                                                className="w-full text-left px-3 py-2 text-xs text-popover-foreground hover:bg-muted transition-colors flex items-center"
+                                                className="w-full text-left px-4 py-2.5 text-xs text-popover-foreground hover:bg-primary/5 transition-colors flex items-center font-medium"
                                             >
-                                                <LightbulbIcon className="h-3 w-3 mr-2 text-primary" />
+                                                <LightbulbIcon className="h-3.5 w-3.5 mr-2.5 text-primary" />
                                                 {suggestion}
                                             </button>
                                         </li>
@@ -1676,7 +2141,7 @@ const renderEditorPane = () => {
                                 </ul>
                             ) : (
                                 !isLoadingSuggestions && (
-                                    <div className="p-3 text-xs text-muted-foreground text-center">
+                                    <div className="p-4 text-xs text-muted-foreground text-center">
                                         <span className="italic">No suggestions found.</span>
                                     </div>
                                 )
@@ -1688,40 +2153,62 @@ const renderEditorPane = () => {
 
             {/* Monaco Editor Area */}
             <div className="flex-grow relative bg-background">
-                     {/* --- START specific modification --- */}
-                     <Editor
-                        language="sql"
-                        value={sql}
-                        onChange={(value) => setSql(value || '')}
-                        theme="vs-dark" // Consider theme options
-                        options={{
-                            minimap: { enabled: false },
-                            fontSize: 13,
-                            wordWrap: 'on',
-                            scrollBeyondLastLine: false,
-                            automaticLayout: true,
-                            padding: { top: 8, bottom: 8 },
-                            readOnly: !selectedTableId // <-- ADDED: Make read-only if no table selected
-                        }}
-                        // Add a visual cue when disabled (optional, but good UX)
-                        // You might need to adjust wrapper styles if editor doesn't dim itself
-                        // Example: className={!selectedTableId ? 'opacity-60 cursor-not-allowed' : ''}
-                        loading={<div className="flex items-center justify-center h-full text-muted-foreground"><Loader2 className="h-5 w-5 animate-spin mr-2"/>Loading Editor...</div>}
-                    />
-                    {/* --- END specific modification --- */}
-                 </div>
+                <Editor
+                    language="sql"
+                    value={sql}
+                    onChange={(value) => setSql(value || '')}
+                    theme="vs-dark"
+                    options={{
+                        minimap: { enabled: false },
+                        fontSize: 14,
+                        wordWrap: 'on',
+                        scrollBeyondLastLine: false,
+                        automaticLayout: true,
+                        padding: { top: 12, bottom: 12 },
+                        lineHeight: 1.6,
+                        fontFamily: "'JetBrains Mono', Menlo, Monaco, Consolas, monospace",
+                        fontLigatures: true,
+                        cursorBlinking: 'smooth',
+                        cursorSmoothCaretAnimation: 'on',
+                        renderLineHighlight: 'all',
+                        smoothScrolling: true,
+                        readOnly: !selectedTableId
+                    }}
+                    className={!selectedTableId ? 'opacity-70' : ''}
+                    loading={
+                        <div className="flex items-center justify-center h-full text-muted-foreground">
+                            <div className="bg-background/80 p-4 rounded-lg shadow flex items-center">
+                                <Loader2 className="h-5 w-5 animate-spin mr-3"/>
+                                <span className="font-medium">Loading Editor...</span>
+                            </div>
+                        </div>
+                    }
+                />
+                {!selectedTableId && (
+                    <div className="absolute inset-0 bg-background/20 backdrop-blur-[1px] flex items-center justify-center pointer-events-none">
+                        <div className="bg-background p-4 rounded-lg shadow-md border border-border">
+                            <p className="text-sm text-muted-foreground flex items-center">
+                                <Database className="h-4 w-4 mr-2 text-primary/70" />
+                                Select a table to start editing
+                            </p>
+                        </div>
+                    </div>
+                )}
+            </div>
 
             {/* Resize Handle */}
             <div 
                 ref={resizeHandleRef} 
                 onMouseDown={startResizing} 
-                className="h-2 bg-background hover:bg-primary/20 cursor-ns-resize flex-shrink-0 flex items-center justify-center transition-colors"
+                className="h-5 bg-background hover:bg-primary/10 cursor-ns-resize flex-shrink-0 flex items-center justify-center sticky bottom-0 z-10 border-t border-border"
             >
-                <div className="w-12 h-1 bg-border rounded-full hover:bg-primary transition-colors" />
+                <div className="w-20 h-1.5 bg-border/80 rounded-full hover:bg-primary/80 transition-colors" />
+                <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-b from-transparent to-background/50 pointer-events-none"></div>
             </div>
         </div>
     );
 };
+
     // --- MODIFIED renderEditorPane function ---
     // const renderEditorPane = () => {
     //     return (
@@ -2346,7 +2833,7 @@ const renderEditorPane = () => {
                                 <Tooltip><TooltipTrigger asChild><Button variant={currentSidebarTab==='schema'?'secondary':'ghost'} size="icon" className="h-7 w-7" onClick={()=>{setCurrentSidebarTab('schema'); setSidebarCollapsed(false);}}><ListTree className="h-4 w-4"/></Button></TooltipTrigger><TooltipContent side="right">Schema</TooltipContent></Tooltip>
                             </div>
                         ) : (
-                           <div className="h-full">
+                            <div className="flex-grow flex flex-col overflow-hidden">
                               {renderSidebarContent()} {/* Render the full sidebar */}
                            </div>
                         )}
