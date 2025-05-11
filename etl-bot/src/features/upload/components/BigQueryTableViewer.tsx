@@ -44,6 +44,7 @@ import {
     PopoverTrigger,
   } from "@/components/ui/popover";
 import { cn } from "@/lib/utils"; 
+import * as htmlToImage from 'html-to-image';
 import { useToast } from "@/hooks/use-toast"
 import {
     BarChart, Bar, LineChart, Line, PieChart, Pie, ScatterChart, Scatter,
@@ -68,7 +69,12 @@ import { FilterControls } from "@/components/filters/FilterControls";
 // import { ThemeToggle } from "./ThemeToggle";
 // --- Interfaces (Keep existing ones) ---
 
-
+interface BackendChartConfig {
+    type: string;
+    x_axis: string;
+    y_axes: string[];
+    rationale?: string;
+}
 interface AISummaryRequest {
     schema: JobResultSchemaField[];
     query_sql: string;
@@ -142,6 +148,7 @@ const BigQueryTableViewer: React.FC = () => {
     const [selectedDatasetId, setSelectedDatasetId] = useState<string>("");
     const [loadingDatasets, setLoadingDatasets] = useState<boolean>(true);
     const [datasetError, setDatasetError] = useState<string | null>(null);
+    const chartContainerRef = useRef<HTMLDivElement>(null);
     const fullDatasetId = useMemo(() => {
         if (!projectId || !selectedDatasetId) return "";
         return `${projectId}.${selectedDatasetId}`;
@@ -480,6 +487,9 @@ useEffect(() => {
     // --- API Callbacks (Keep existing ones) ---
     const stopPolling = useCallback(() => { if(pollingIntervalRef.current){clearInterval(pollingIntervalRef.current); pollingIntervalRef.current=null; console.log("Polling stopped.");} }, []);
     // fetchJobResults: Modified to set original results in jobResults
+    
+    
+
     const fetchJobResults = useCallback(async (currentJobId: string, loc: string, pageToken?: string | null) => {
         console.log(`Fetching results job ${currentJobId}, page: ${pageToken ? 'next' : 'first'}`);
         setLoadingResults(true);
@@ -518,61 +528,227 @@ useEffect(() => {
         }
     }, [getErrorMessage]); // Removed setCurrentOutputTab dependency
 
+
+    const filteredData = useMemo(() => {
+        if (!jobResults?.rows) {
+            return []; // No base data
+        }
+        // Check if any filters are actually active
+        const activeFilterKeys = Object.keys(activeFilters).filter(key => {
+             const filter = activeFilters[key];
+             if (!filter) return false;
+             switch (filter.type) {
+                 case 'categorical': return filter.selected.length > 0;
+                 case 'dateRange': return filter.start !== null || filter.end !== null;
+                 case 'numericRange': return filter.min !== null || filter.max !== null;
+                 case 'textSearch': return filter.term.trim() !== '';
+                 default: return false;
+             }
+         });
+
+        if (activeFilterKeys.length === 0) {
+            return jobResults.rows; // Return original rows if no filters are active
+        }
+
+        console.log("Applying filters:", activeFilters);
+        let data = [...jobResults.rows];
+
+        Object.entries(activeFilters).forEach(([columnName, filterValue]) => {
+             if (!filterValue) return;
+
+            data = data.filter(row => {
+                 const rowValue = row[columnName];
+
+                switch (filterValue.type) {
+                    case 'categorical':
+                        // Handle null/undefined in categorical selection
+                        const rowValueString = rowValue === null || rowValue === undefined ? '(empty)' : String(rowValue);
+                        return filterValue.selected.includes(rowValueString);
+
+                    case 'numericRange': {
+                        if (rowValue === null || rowValue === undefined) return false; // Exclude nulls from range
+                        const numValue = Number(rowValue);
+                        if (isNaN(numValue)) return false; // Exclude non-numeric values
+                        const minOk = filterValue.min === null || numValue >= filterValue.min;
+                        const maxOk = filterValue.max === null || numValue <= filterValue.max;
+                        return minOk && maxOk;
+                    }
+                    case 'dateRange': {
+                        if (rowValue === null || rowValue === undefined) return false; // Exclude nulls from date range
+                        try {
+                             let dateValue: Date | null = null;
+                             const dateStr = String(rowValue);
+                             dateValue = parseISO(dateStr); // Try ISO first
+                             if (!isValid(dateValue)) dateValue = new Date(dateStr); // Fallback
+                             if (!isValid(dateValue)) return false; // Cannot parse row date
+
+                             const timeValue = dateValue.getTime();
+
+                             // Start date comparison (inclusive)
+                             const startOk = !filterValue.start || timeValue >= filterValue.start.getTime();
+
+                             // End date comparison (inclusive of the whole day)
+                             let endOfDay = filterValue.end;
+                             if (endOfDay) {
+                                 endOfDay = new Date(endOfDay);
+                                 endOfDay.setHours(23, 59, 59, 999); // Set to end of the selected day
+                             }
+                             const endOk = !endOfDay || timeValue <= endOfDay.getTime();
+
+                             return startOk && endOk;
+                        } catch { return false; }
+                     }
+                    case 'textSearch':
+                         if (rowValue === null || rowValue === undefined) return false; // Exclude nulls from search
+                        return String(rowValue).toLowerCase().includes(filterValue.term.toLowerCase());
+                    default:
+                        return true; // No filter applied for unknown types
+                }
+            });
+        });
+        console.log("Filtered data count:", data.length);
+        return data;
+    }, [jobResults?.rows, activeFilters]);
+    
+    
+
     // fetchJobStatus: Mostly unchanged, triggers fetchJobResults
     const fetchJobStatus = useCallback(async (currentJobId: string, loc: string) => { console.log(`Polling job: ${currentJobId}`); setJobError(""); try { const r=await axiosInstance.get<JobStatusResponse>(`/api/bigquery/jobs/${currentJobId}?location=${loc}`); const d=r.data; setJobStatus(d); if(d.state==='DONE'){ stopPolling(); setIsRunningJob(false); if(d.error_result){ const errMsg=`Job failed: ${d.error_result.message||d.error_result.reason||'Unknown'}`; setJobError(errMsg); setJobResults(null); addToHistory({sql,success:false}); } else { setJobError(""); setCurrentOutputTab("results"); // Switch to results tab on SUCCESSFUL completion
                  if(d.statement_type==='SELECT'||d.statement_type===undefined){ await fetchJobResults(currentJobId,loc); // Fetch first page
                 } else { setJobResults({rows:[],total_rows_in_result_set:d.num_dml_affected_rows??0,schema:[]}); addToHistory({sql,success:true,rowCount:d.num_dml_affected_rows}); } } } else { setIsRunningJob(true); } } catch (e:any){ console.error("Error fetching status:",e); const m=getErrorMessage(e); if(e.response?.status===404){ setJobError(`Job ${currentJobId} not found.`); stopPolling(); setIsRunningJob(false); addToHistory({sql,success:false}); } else { setJobError(`Fetch status failed: ${m}`); } } }, [stopPolling, fetchJobResults, sql, addToHistory, getErrorMessage]); // Added setCurrentOutputTab dependency indirectly via fetchJobResults
 
-                const handleExcelDownload = useCallback(async () => {
-                    if (!jobId || !sql || !jobLocation) {
-                        console.error("Missing Job ID, SQL, or Location for download.");
-                        toast({ variant: "destructive", title: "Download Error", description: "Cannot download report: Missing required job info." });
-                        return;
-                    }
-                
-                    setIsDownloadingExcel(true);
-                    toast({ title: "Preparing Download...", description: "Generating Excel report...", duration: 2000 });
-                
-                    try {
-                        // const sourceTables = extractTableNames(sql); // Keep if needed for logging/context
-                        // console.log(`Requesting Excel export for Job: ${jobId}, Location: ${jobLocation}, Tables:`, sourceTables);
-                
-                        const response = await axiosInstance.post('/api/export/query-to-excel', {
-                            job_id: jobId,
-                            sql: sql,
-                            location: jobLocation,
-                        }, {
-                            responseType: 'blob', // Crucial: ensures response.data is a Blob
-                        });
-                
-                        // Extract filename
-                        let filename = `query_export_${jobId.substring(0, 8)}.xlsx`;
-                        const contentDisposition = response.headers['content-disposition'];
-                        if (contentDisposition) {
-                            const filenameMatch = contentDisposition.match(/filename="?([^"]+)"?/);
-                            if (filenameMatch && filenameMatch.length > 1) {
-                                filename = filenameMatch[1];
-                            }
-                        }
-                
-                        // --- Use file-saver correctly ---
-                        // Pass the Blob (response.data) as the first argument
-                        saveAs(response.data, filename);
-                
-                        toast({ title: "Download Started", description: `Report "${filename}" should begin downloading.`, variant: "default" }); // Use "success" variant
-                
-                    } catch (error: any) {
-                        console.error("Excel download failed:", error);
-                        const errorMessage = getErrorMessage(error); // Ensure you have this helper
-                        toast({ variant: "destructive", title: "Download Failed", description: errorMessage });
-                    } finally {
-                        setIsDownloadingExcel(false);
-                    }
-                    // Ensure all dependencies used inside are listed correctly
-                }, [jobId, sql, jobLocation, toast, getErrorMessage, setIsDownloadingExcel]);
 
-    // submitSqlJob: Mostly unchanged, clears previous results
+
+// Assuming this is inside your BigQueryTableViewer.tsx component
+// and all necessary states (jobId, sql, jobLocation, activeVisualization, chartContainerRef, 
+// currentOutputTab, filteredData, setIsDownloadingExcel) and imports 
+// (useCallback, toast, getErrorMessage, htmlToImage, saveAs, axiosInstance, 
+// ActiveVisualizationConfig, BackendChartConfig, RowData) are correctly defined.
+
+const handleExcelDownload = useCallback(async () => {
+    console.log("[DEBUG] handleExcelDownload: Entry point");
+
+    if (!jobId || !sql || !jobLocation) {
+        console.error("[DEBUG] handleExcelDownload: Missing Job ID, SQL, or Location for download.");
+        toast({ variant: "destructive", title: "Download Error", description: "Cannot download report: Missing required job info." });
+        return;
+    }
+
+    setIsDownloadingExcel(true);
+    toast({ title: "Preparing Report...", description: "Generating Excel report with data and chart (if active)...", duration: 3000 });
+
+    let chartImageBase64: string | null = null;
+    let backendChartConfigPayload: BackendChartConfig | null = null;
+    let chartDataForPayload: RowData[] | null = null;
+    let dataUrl: string | null = null; 
+
+    // --- Log states BEFORE the chart capture condition ---
+    console.log("[DEBUG] handleExcelDownload: Before chart capture check:");
+    console.log(`[DEBUG]   activeVisualization:`, activeVisualization ? JSON.stringify(activeVisualization) : 'null');
+    console.log(`[DEBUG]   chartContainerRef.current exists:`, !!chartContainerRef.current);
+    console.log(`[DEBUG]   currentOutputTab:`, currentOutputTab);
+    console.log(`[DEBUG]   filteredData.length:`, filteredData.length);
+
+    // --- Capture chart image if a visualization is active and rendered ON THE VISUALIZE TAB ---
+    if (activeVisualization && chartContainerRef.current && currentOutputTab === 'visualize' && filteredData.length > 0) {
+        console.log("[DEBUG] handleExcelDownload: ALL conditions for chart capture MET. Attempting image capture...");
+        try {
+            console.log("[DEBUG] htmlToImage: About to call toPng on ref:", chartContainerRef.current);
+            dataUrl = await htmlToImage.toPng(chartContainerRef.current, { 
+                quality: 0.95, 
+                pixelRatio: 1.5,
+                // You might add a filter here if specific elements (like Monaco editor if it's somehow included)
+                // are causing issues, though it shouldn't be if chartContainerRef only wraps the chart.
+                // filter: (node) => { ... } 
+            });
+            console.log("[DEBUG] htmlToImage: toPng call completed. dataUrl (first 100 chars):", dataUrl ? dataUrl.substring(0, 100) : "null or undefined");
+
+            if (dataUrl && dataUrl.includes(',')) {
+                chartImageBase64 = dataUrl.split(',')[1];
+                console.log("[DEBUG] htmlToImage: Split successful. chartImageBase64 is SET (length:", chartImageBase64?.length, ").");
+            } else {
+                console.warn("[DEBUG] htmlToImage: dataUrl was null, undefined, or did not contain ','. dataUrl:", dataUrl);
+            }
+            
+            // Map frontend ActiveVisualizationConfig to BackendChartConfig
+            // This ensures the keys sent to the backend match its Pydantic model
+            if (activeVisualization) { // Redundant check but safe
+                backendChartConfigPayload = {
+                    type: activeVisualization.chart_type,
+                    x_axis: activeVisualization.x_axis_column,
+                    y_axes: activeVisualization.y_axis_columns,
+                    rationale: activeVisualization.rationale,
+                };
+            }
+            chartDataForPayload = filteredData; // Send the data that powered the captured chart
+
+        } catch (imgError: any) {
+            console.error("[DEBUG] handleExcelDownload: FAILED to capture chart image (htmlToImage.toPng threw an error):", imgError);
+            console.log("[DEBUG] htmlToImage: Value of dataUrl in catch block:", dataUrl); // Log dataUrl state in catch
+            if (imgError && imgError.message) {
+                console.error("[DEBUG]   Error message:", imgError.message);
+            }
+            if (imgError && imgError.stack) {
+                console.error("[DEBUG]   Error stack:", imgError.stack);
+            }
+            toast({ title: "Chart Capture Failed", description: `Could not generate chart image: ${imgError.message || 'Unknown error'}. Proceeding with data export.`, variant: "default", duration: 5000 });
+            // chartImageBase64, backendChartConfigPayload, chartDataForPayload will remain null or their initial values
+        }
+    } else {
+        console.warn("[DEBUG] handleExcelDownload: ONE OR MORE conditions for chart capture NOT MET (activeViz, ref, currentTab, or data).");
+        if (!activeVisualization) console.warn("[DEBUG]   Reason: activeVisualization is falsy.");
+        if (!chartContainerRef.current) console.warn("[DEBUG]   Reason: chartContainerRef.current is falsy/null (Chart component might not be mounted/visible if not on Visualize tab).");
+        if (currentOutputTab !== 'visualize') console.warn(`[DEBUG]   Reason: currentOutputTab is '${currentOutputTab}', not 'visualize'.`);
+        if (filteredData.length === 0) console.warn("[DEBUG]   Reason: filteredData is empty.");
+    }
+
+    try {
+        const payload = {
+            job_id: jobId,
+            sql: sql,
+            location: jobLocation,
+            chart_image_base64: chartImageBase64,
+            chart_config: backendChartConfigPayload,
+            chart_data: chartDataForPayload,
+        };
+        
+        console.log("[DEBUG] FINAL PAYLOAD CHECK: chart_image_base64 is " + (chartImageBase64 ? `PRESENT (length: ${chartImageBase64.length})` : "NULL or EMPTY"));
+        console.log("[DEBUG] FINAL PAYLOAD CHECK: chart_config is " + (backendChartConfigPayload ? JSON.stringify(backendChartConfigPayload) : "NULL"));
+        
+        console.log("[DEBUG] Requesting Excel export with payload (actual values):", payload );
+
+        const response = await axiosInstance.post('/api/export/query-to-excel', payload, {
+            responseType: 'blob',
+        });
+
+        let filename = `query_report_${jobId.substring(0, 8)}.xlsx`;
+        const contentDisposition = response.headers['content-disposition'];
+        if (contentDisposition) {
+            const filenameMatch = contentDisposition.match(/filename="?([^"]+)"?/);
+            if (filenameMatch && filenameMatch[1]) {
+                filename = filenameMatch[1];
+            }
+        }
+        saveAs(response.data, filename);
+        toast({ title: "Download Started", description: `Report "${filename}" should begin downloading.`, variant: "default" });
+
+    } catch (error: any) {
+        console.error("[DEBUG] handleExcelDownload: Excel download API call failed:", error);
+        const errorMessage = getErrorMessage(error);
+        toast({ variant: "destructive", title: "Download Failed", description: errorMessage });
+    } finally {
+        setIsDownloadingExcel(false);
+        console.log("[DEBUG] handleExcelDownload: Exiting function.");
+    }
+}, [
+    jobId, sql, jobLocation, toast, getErrorMessage, setIsDownloadingExcel,
+    activeVisualization, chartContainerRef, currentOutputTab, filteredData,
+]);
     
+
+
+
+
     const submitSqlJob = useCallback(async () => {
         // Initial checks for dataset selection remain the same
         if (!fullDatasetId) {
@@ -1084,89 +1260,6 @@ useEffect(() => {
             setActiveFilters({});
         }
     }, [jobResults?.schema, jobResults?.rows]); // Rerun when schema or rows change
-
-
-    // --- Calculate Filtered Data ---
-    const filteredData = useMemo(() => {
-        if (!jobResults?.rows) {
-            return []; // No base data
-        }
-        // Check if any filters are actually active
-        const activeFilterKeys = Object.keys(activeFilters).filter(key => {
-             const filter = activeFilters[key];
-             if (!filter) return false;
-             switch (filter.type) {
-                 case 'categorical': return filter.selected.length > 0;
-                 case 'dateRange': return filter.start !== null || filter.end !== null;
-                 case 'numericRange': return filter.min !== null || filter.max !== null;
-                 case 'textSearch': return filter.term.trim() !== '';
-                 default: return false;
-             }
-         });
-
-        if (activeFilterKeys.length === 0) {
-            return jobResults.rows; // Return original rows if no filters are active
-        }
-
-        console.log("Applying filters:", activeFilters);
-        let data = [...jobResults.rows];
-
-        Object.entries(activeFilters).forEach(([columnName, filterValue]) => {
-             if (!filterValue) return;
-
-            data = data.filter(row => {
-                 const rowValue = row[columnName];
-
-                switch (filterValue.type) {
-                    case 'categorical':
-                        // Handle null/undefined in categorical selection
-                        const rowValueString = rowValue === null || rowValue === undefined ? '(empty)' : String(rowValue);
-                        return filterValue.selected.includes(rowValueString);
-
-                    case 'numericRange': {
-                        if (rowValue === null || rowValue === undefined) return false; // Exclude nulls from range
-                        const numValue = Number(rowValue);
-                        if (isNaN(numValue)) return false; // Exclude non-numeric values
-                        const minOk = filterValue.min === null || numValue >= filterValue.min;
-                        const maxOk = filterValue.max === null || numValue <= filterValue.max;
-                        return minOk && maxOk;
-                    }
-                    case 'dateRange': {
-                        if (rowValue === null || rowValue === undefined) return false; // Exclude nulls from date range
-                        try {
-                             let dateValue: Date | null = null;
-                             const dateStr = String(rowValue);
-                             dateValue = parseISO(dateStr); // Try ISO first
-                             if (!isValid(dateValue)) dateValue = new Date(dateStr); // Fallback
-                             if (!isValid(dateValue)) return false; // Cannot parse row date
-
-                             const timeValue = dateValue.getTime();
-
-                             // Start date comparison (inclusive)
-                             const startOk = !filterValue.start || timeValue >= filterValue.start.getTime();
-
-                             // End date comparison (inclusive of the whole day)
-                             let endOfDay = filterValue.end;
-                             if (endOfDay) {
-                                 endOfDay = new Date(endOfDay);
-                                 endOfDay.setHours(23, 59, 59, 999); // Set to end of the selected day
-                             }
-                             const endOk = !endOfDay || timeValue <= endOfDay.getTime();
-
-                             return startOk && endOk;
-                        } catch { return false; }
-                     }
-                    case 'textSearch':
-                         if (rowValue === null || rowValue === undefined) return false; // Exclude nulls from search
-                        return String(rowValue).toLowerCase().includes(filterValue.term.toLowerCase());
-                    default:
-                        return true; // No filter applied for unknown types
-                }
-            });
-        });
-        console.log("Filtered data count:", data.length);
-        return data;
-    }, [jobResults?.rows, activeFilters]);
 
 
     // --- Filter Handlers ---
@@ -2716,7 +2809,17 @@ const renderEditorPane = () => {
                         <Button variant="ghost" size="sm" onClick={() => setActiveVisualization(null)} className="text-xs h-7"> Close Chart </Button>
                     </div>
                     <p className="text-xs text-muted-foreground mb-2 flex-shrink-0">{rationale}</p>
-                    <div className="flex-grow border rounded-md overflow-hidden bg-background">
+                    <div className="flex-shrink-0 p-3 border-t"> {/* Or some other appropriate placement */}
+    <Button
+        onClick={handleExcelDownload} // Reuse the existing function
+        disabled={isDownloadingExcel || !activeVisualization || filteredData.length === 0}
+        size="sm"
+    >
+        {isDownloadingExcel ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin"/> : <FileSpreadsheet className="mr-1.5 h-4 w-4"/>}
+        Download Report with this Chart
+    </Button>
+</div>
+<div ref={chartContainerRef} className="flex-grow border rounded-md overflow-hidden bg-background">
                         {renderChart()}
                     </div>
                 </div>
