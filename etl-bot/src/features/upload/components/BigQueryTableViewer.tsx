@@ -28,6 +28,22 @@ import {
     MessageSquare,X,
     FileSpreadsheet, Clock ,Sparkles , LightbulbIcon , AlertCircle , Play ,Settings2,Check,ChevronsUpDown,CheckCheck
 } from "lucide-react";
+import { useAuth } from '@/contexts/AuthContext';
+import {
+    Command,
+    CommandEmpty,
+    CommandGroup,
+    CommandInput,
+    CommandItem,
+    CommandList,
+    CommandSeparator,
+  } from "@/components/ui/command";
+import {
+    Popover,
+    PopoverContent,
+    PopoverTrigger,
+  } from "@/components/ui/popover";
+import { cn } from "@/lib/utils"; 
 import * as htmlToImage from 'html-to-image';
 import { useToast } from "@/hooks/use-toast"
 import {
