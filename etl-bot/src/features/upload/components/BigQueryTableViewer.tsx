@@ -538,7 +538,7 @@ const handleExcelDownload = useCallback(async () => {
             if (imgError && imgError.stack) {
                 console.error("[DEBUG]   Error stack:", imgError.stack);
             }
-            toast({ title: "Chart Capture Failed", description: `Could not generate chart image: ${imgError.message || 'Unknown error'}. Proceeding with data export.`, variant: "warning", duration: 5000 });
+            toast({ title: "Chart Capture Failed", description: `Could not generate chart image: ${imgError.message || 'Unknown error'}. Proceeding with data export.`, variant: "default", duration: 5000 });
             // chartImageBase64, backendChartConfigPayload, chartDataForPayload will remain null or their initial values
         }
     } else {
