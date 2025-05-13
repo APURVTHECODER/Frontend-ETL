@@ -27,6 +27,8 @@ interface DatasetListApiResponse {
 }
 // Modified UploadView
 export function UploadView() {
+  const MAX_FILE_SIZE_MB = 50;
+  const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
   const [files, setFiles] = useState<ETLFile[]>([]);
   const [processingStage, setProcessingStage] = useState<ProcessingStage>('idle');
   const [isUploading, setIsUploading] = useState<boolean>(false);
@@ -101,6 +103,7 @@ export function UploadView() {
         setIsDeleting(false);
     }
 };
+
   const handleFilesAdded = useCallback((newFiles: File[]) => {
     if (!selectedDatasetId) {
       toast({
@@ -109,6 +112,18 @@ export function UploadView() {
           description: "Please select a target dataset first before adding files.",
       });
       return; // Prevent adding files if no dataset is selected
+  }
+  const validFiles = newFiles.filter(
+    file =>
+      /\.(xlsx|xls)$/i.test(file.name) &&
+      file.size <= MAX_FILE_SIZE_BYTES
+  );
+  if (validFiles.length < newFiles.length) {
+    toast({
+      variant: "destructive",
+      title: "Invalid Files Skipped",
+      description: `Only Excel files under ${MAX_FILE_SIZE_MB} MB are allowed.`
+    });
   }
     const newETLFiles: ETLFile[] = newFiles
       .filter(file => /\.(xlsx|xls)$/i.test(file.name) && file.size < 50 * 1024 * 1024)
