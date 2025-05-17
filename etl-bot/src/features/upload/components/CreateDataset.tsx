@@ -86,7 +86,7 @@ export function CreateDataset({ onDatasetCreated, defaultLocation = "US" }: Crea
 
     } catch (err: any) {
       console.error("Error creating dataset:", err);
-      let message = "Failed to create dataset.";
+      let message = "Failed to create workspace.";
       if ((err as any).isAxiosError) {
         if (err.response?.status === 409) {
           message = `Dataset "${newDatasetId}" already exists.`;
@@ -180,7 +180,7 @@ export function CreateDataset({ onDatasetCreated, defaultLocation = "US" }: Crea
                 Creating...
               </>
             ) : (
-              "Create Dataset"
+              "Create Workspace"
             )}
           </Button>
         </DialogFooter>
