@@ -61,7 +61,7 @@ export function CreateDataset({ onDatasetCreated, defaultLocation = "US" }: Crea
 
   const handleCreate = async () => {
     if (!validateDatasetId(newDatasetId)) {
-      console.log("[CreateDataset] Attempting to create dataset with ID:", newDatasetId); // <<< ADD THIS LOG
+      // console.log("[CreateDataset] Attempting to create dataset with ID:", newDatasetId); // <<< ADD THIS LOG
       setError("Invalid Dataset ID. Use only letters, numbers, and underscores (a-z, A-Z, 0-9, _). Max length 1024.");
       return;
     }
