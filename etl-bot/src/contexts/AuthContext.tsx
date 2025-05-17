@@ -34,15 +34,15 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       setUser(firebaseUser); // Set the Firebase user object
       setLoading(false);     // Firebase auth state determined
 
-      console.log("Auth State Changed:", firebaseUser ? `User UID: ${firebaseUser.uid}` : "No user");
+      // console.log("Auth State Changed:", firebaseUser ? `User UID: ${firebaseUser.uid}` : "No user");
 
       // +++ Fetch profile ONLY when user logs IN +++
       if (firebaseUser) {
         try {
-          console.log(`User ${firebaseUser.uid} authenticated, fetching profile...`);
+          // console.log(`User ${firebaseUser.uid} authenticated, fetching profile...`);
           const profile = await fetchUserProfile(); // Call backend API
           setUserProfile(profile);
-          console.log("User profile fetched and stored:", profile);
+          // console.log("User profile fetched and stored:", profile);
         } catch (error) {
           console.error("Error fetching user profile in AuthProvider:", error);
           // Set a default 'user' profile on error to prevent UI crashes
@@ -54,7 +54,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         // Clear profile when user logs OUT
         setUserProfile(null);
         setIsRoleLoading(false); // Not loading role if logged out
-        console.log("User logged out, profile cleared.");
+        // console.log("User logged out, profile cleared.");
       }
       // +++ End profile fetch logic +++
 
