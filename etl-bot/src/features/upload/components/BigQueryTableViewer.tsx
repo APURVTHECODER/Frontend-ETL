@@ -1099,7 +1099,7 @@ useEffect(() => {
                 setSelectedDatasetId(datasets[0].datasetId);
                 toast({ title: `Selected initial dataset: ${datasets[0].datasetId}`, variant: "default", duration: 2000});
             } else {
-                setDatasetError("No accessible datasets found.");
+                setDatasetError("Please contact admin for access to workspace.");
                 setTables([]);
                 setFilteredTables([]);
                 setSchemaData(null);
@@ -1437,7 +1437,7 @@ useEffect(() => {
                 {datasetError && !loadingDatasets && (
                     <Alert variant="destructive" className="text-xs p-2">
                         <Terminal className="h-3 w-3" />
-                        <AlertTitle className="text-xs font-medium">Error</AlertTitle>
+                        <AlertTitle className="text-xs font-medium">No Workspace Found</AlertTitle>
                         <AlertDescription className="text-xs">{datasetError}</AlertDescription>
                     </Alert>
                 )}

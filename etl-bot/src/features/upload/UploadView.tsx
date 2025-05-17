@@ -61,7 +61,7 @@ export function UploadView() {
         setSelectedDatasetId(datasets[0].datasetId);
       } else if (datasets.length === 0) {
         setSelectedDatasetId("");
-        setDatasetError("No accessible datasets found.");
+        setDatasetError("Please contact admin for access to workspace.");
       }
     } catch (err: any) {
       console.error("Error fetching datasets:", err);
@@ -315,7 +315,7 @@ export function UploadView() {
           {!loadingDatasets && datasetError && !availableDatasets.length && (
               <Alert variant="destructive">
                   <Terminal className="h-4 w-4" />
-                  <AlertTitle>Error Loading Workspace</AlertTitle>
+                  <AlertTitle>No Workspace Found</AlertTitle>
                   <AlertDescription>
                       {datasetError}
                   </AlertDescription>
