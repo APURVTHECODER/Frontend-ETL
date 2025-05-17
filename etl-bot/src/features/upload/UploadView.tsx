@@ -46,8 +46,11 @@ export function UploadView() {
   const [isDeleting, setIsDeleting] = useState<boolean>(false);
 // src/features/upload/UploadView.tsx
 const canCreateWorkspace = useMemo(() => {
-  return !isRoleLoading && (isAdmin || (!isAdmin && availableDatasets.length === 0));
-}, [isAdmin, isRoleLoading, availableDatasets.length]);
+  if (isRoleLoading || loadingDatasets) { // <<<< KEY ADDITION
+    return false; // Decision cannot be made reliably yet
+  }
+  return isAdmin || (!isAdmin && availableDatasets.length === 0);
+}, [isAdmin, isRoleLoading, loadingDatasets, availableDatasets.length]);
   // We can derive a general 'isProcessing' state
   const isProcessing = isUploading || isDeleting; // Add || isCreating if Create had its own loading state here
   const fetchDatasets = async () => {
@@ -95,9 +98,9 @@ const canCreateWorkspace = useMemo(() => {
   }, []);
   
   // Now this works too:
-  const handleDatasetCreated = () => {
-    fetchDatasets(); // ✅ This will work now
-  }; // Empty dependency array ensures this runs only once on mount
+const handleDatasetCreated = useCallback(() => {
+  fetchDatasets(); // This will set loadingDatasets to true, then false.
+}, [fetchDatasets]); // Empty dependency array ensures this runs only once on mount
   // +++ MODIFICATION END +++
   const handleDeleteDatasetConfirmed = async () => {
     if (!selectedDatasetId || !isAdmin) return; // Guard again
