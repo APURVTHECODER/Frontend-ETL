@@ -28,7 +28,7 @@ import {
     MessageSquare,X,
     FileSpreadsheet, Clock ,Sparkles , LightbulbIcon , AlertCircle , Play ,Settings2,Check,ChevronsUpDown,CheckCheck
 } from "lucide-react";
-import { useAuth } from '@/contexts/AuthContext';
+// import { useAuth } from '@/contexts/AuthContext';
 import {
     Command,
     CommandEmpty,
@@ -129,8 +129,8 @@ type ActiveVisualizationConfig = {
     rationale?: string;
   };
 const BigQueryTableViewer: React.FC = () => {
-      const { userProfile,  } = useAuth();
-      const isAdmin = userProfile?.role === 'admin';
+    //   const { userProfile,  } = useAuth();
+    //   const isAdmin = userProfile?.role === 'admin';
     const getErrorMessage = useCallback((error: any): string => { 
         {
             const d=error.response?.data; if(d && typeof d==='object' && 'detail' in d)return String(d.detail);
