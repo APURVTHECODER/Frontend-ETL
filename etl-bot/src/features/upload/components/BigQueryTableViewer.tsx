@@ -328,7 +328,7 @@ const fetchPromptSuggestions = useCallback(async (currentPrompt: string) => {
 const fetchSchema = useCallback(async () => {
     // +++ Refined Guard Clause (Similar to fetchTables) +++
     if (!fullDatasetId || !fullDatasetId.includes('.')) {
-        console.warn(`Skipping fetchSchema: Invalid or empty fullDatasetId ('${fullDatasetId}')`);
+        // console.warn(`Skipping fetchSchema: Invalid or empty fullDatasetId ('${fullDatasetId}')`);
         setSchemaData(null);
         setLoadingSchema(false);
         setSchemaError(""); // Clear schema error if skipping
