@@ -23,7 +23,9 @@ interface DatasetActionsProps {
   isProcessing: boolean; // Covers uploading, deleting, creating, and potentially the manage access submission if needed
   onDatasetCreated: () => void;
   onDeleteConfirmed: () => Promise<void>; // Should handle its own loading state internally usually
-  isLoadingDatasets: boolean; // State for when the list of datasets is loading
+  isLoadingDatasets: boolean;
+  canUserCreateWorkspace: boolean; // New prop from UploadView
+  hasExistingWorkspaces: boolean; // New prop // State for when the list of datasets is loading
 }
 
 export function DatasetActions({
@@ -32,7 +34,9 @@ export function DatasetActions({
   selectedDatasetId,
   isProcessing, // General busy state
   onDatasetCreated,
-  onDeleteConfirmed, // Specific state for dataset list loading
+  onDeleteConfirmed,
+  canUserCreateWorkspace, // New prop from UploadView
+  hasExistingWorkspaces, // New prop // Specific state for dataset list loading
 }: DatasetActionsProps) {
 
   // --- Render Logic ---
@@ -41,14 +45,43 @@ export function DatasetActions({
   if (isRoleLoading) {
     return (
       <div className="flex gap-2 flex-shrink-0">
-        <Skeleton className="h-9 w-[160px]" /> {/* Approx width for Create */}
-        {/* +++ Added Skeleton for Manage Access +++ */}
-        <Skeleton className="h-9 w-[150px]" /> {/* Approx width for Manage */}
-        <Skeleton className="h-9 w-[100px]" /> {/* Approx width for Delete */}
+        <Skeleton className="h-9 w-[160px]" /> {/* Create Workspace */}
+        {isAdmin && <Skeleton className="h-9 w-[150px]" />} {/* Manage Access (only if admin skeleton is needed) */}
+        {isAdmin && <Skeleton className="h-9 w-[100px]" />} {/* Delete Workspace (only if admin skeleton is needed) */}
       </div>
     );
   }
-
+  if (!isAdmin) {
+    if (canUserCreateWorkspace) {
+      // Non-admin can create their first workspace
+      return (
+        <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-center">
+          <CreateDataset
+            onDatasetCreated={onDatasetCreated}
+            // disabled={isProcessing} // Disable if any global processing is happening
+          />
+          <p className="text-xs text-muted-foreground mt-1 sm:mt-0">
+            Create your personal workspace to get started.
+          </p>
+        </div>
+      );
+    } else if (hasExistingWorkspaces) {
+      // Non-admin already has their workspace
+      return (
+        <p className="text-sm text-muted-foreground italic">
+          You are using your personal workspace. Manage tables in the Query Editor.
+        </p>
+      );
+    } else {
+      // Non-admin, cannot create (should ideally not happen if canUserCreateWorkspace is false and hasExisting is false,
+      // but could be a state if datasets are empty and they are not allowed to create for some other reason)
+      return (
+        <p className="text-sm text-muted-foreground italic">
+          Workspace access is managed by an administrator.
+        </p>
+      );
+    }
+  }
   // Render nothing if user is not admin
   if (!isAdmin) {
     return null;
