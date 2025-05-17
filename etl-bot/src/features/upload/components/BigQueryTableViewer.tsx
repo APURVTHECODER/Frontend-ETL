@@ -1099,7 +1099,7 @@ useEffect(() => {
                 setSelectedDatasetId(datasets[0].datasetId);
                 toast({ title: `Selected initial dataset: ${datasets[0].datasetId}`, variant: "default", duration: 2000});
             } else {
-                setDatasetError("No accessible datasets found.");
+                setDatasetError("Please contact admin for access to workspace.");
                 setTables([]);
                 setFilteredTables([]);
                 setSchemaData(null);
@@ -1437,7 +1437,7 @@ useEffect(() => {
                 {datasetError && !loadingDatasets && (
                     <Alert variant="destructive" className="text-xs p-2">
                         <Terminal className="h-3 w-3" />
-                        <AlertTitle className="text-xs font-medium">Error</AlertTitle>
+                        <AlertTitle className="text-xs font-medium">No Workspace Found</AlertTitle>
                         <AlertDescription className="text-xs">{datasetError}</AlertDescription>
                     </Alert>
                 )}
@@ -1526,45 +1526,7 @@ useEffect(() => {
       return (
         <li key={t.tableId} className="flex items-center group">
           {/* Table name button */}
-          <button
-            onClick={() => handleTableSelect(t.tableId)}
-            className={`
-              flex-grow px-2 py-1.5 rounded-md text-left truncate text-xs
-              transition-colors duration-150 ease-in-out
-              ${selectedTableId === t.tableId
-                ? 'bg-primary text-primary-foreground font-medium'
-                : 'text-foreground hover:bg-muted'}
-            `}
-          >
-            <div className="flex items-center gap-1.5">
-              <Database
-                className="h-3 w-3 flex-shrink-0 text-muted-foreground group-hover:text-foreground"
-              />
-              <span className="truncate">{t.tableId}</span>
-            </div>
-          </button>
-
-          {/* Favorite toggle */}
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              toggleFavorite(t.tableId);
-            }}
-            className={`
-              ml-1 p-1 rounded-md opacity-0 group-hover:opacity-100 transition-opacity
-              ${isFav
-                ? 'text-yellow-500 dark:text-yellow-400 hover:text-yellow-600 dark:hover:text-yellow-300'
-                : 'text-muted-foreground hover:text-foreground'}
-            `}
-          >
-            <Bookmark
-              className="h-3 w-3"
-              fill={isFav ? 'currentColor' : 'none'}
-            />
-          </button>
-
-          {/* Delete button, only for admins */}
-          {isAdmin && (
+                    {isAdmin && (
             <AlertDialog>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -1613,6 +1575,46 @@ useEffect(() => {
               </AlertDialogContent>
             </AlertDialog>
           )}
+                    <button
+            onClick={(e) => {
+              e.stopPropagation();
+              toggleFavorite(t.tableId);
+            }}
+            className={`
+              ml-1 p-1 rounded-md opacity-0 group-hover:opacity-100 transition-opacity
+              ${isFav
+                ? 'text-yellow-500 dark:text-yellow-400 hover:text-yellow-600 dark:hover:text-yellow-300'
+                : 'text-muted-foreground hover:text-foreground'}
+            `}
+          >
+            <Bookmark
+              className="h-3 w-3"
+              fill={isFav ? 'currentColor' : 'none'}
+            />
+          </button>
+          <button
+            onClick={() => handleTableSelect(t.tableId)}
+            className={`
+              flex-grow px-2 py-1.5 rounded-md text-left truncate text-xs
+              transition-colors duration-150 ease-in-out
+              ${selectedTableId === t.tableId
+                ? 'bg-primary text-primary-foreground font-medium'
+                : 'text-foreground hover:bg-muted'}
+            `}
+          >
+            <div className="flex items-center gap-1.5">
+              <Database
+                className="h-3 w-3 flex-shrink-0 text-muted-foreground group-hover:text-foreground"
+              />
+              <span className="truncate">{t.tableId}</span>
+            </div>
+          </button>
+
+          {/* Favorite toggle */}
+
+
+          {/* Delete button, only for admins */}
+
         </li>
       );
     })}
