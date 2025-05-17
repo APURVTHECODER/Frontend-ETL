@@ -298,7 +298,7 @@ const fetchPromptSuggestions = useCallback(async (currentPrompt: string) => {
         return;
     }
 
-    console.log("Fetching suggestions for:", currentPrompt);
+    // console.log("Fetching suggestions for:", currentPrompt);
     setIsLoadingSuggestions(true);
     // Keep suggestions visible while loading new ones, maybe show loader inside
     // setShowSuggestions(false); // Optionally hide immediately
@@ -336,13 +336,13 @@ const fetchSchema = useCallback(async () => {
     }
     // +++ End Refined Guard Clause +++
 
-    console.log(`Fetching schema for dataset: ${fullDatasetId}`);
+    // console.log(`Fetching schema for dataset: ${fullDatasetId}`);
     setLoadingSchema(true);
     setSchemaError("");
     setSchemaData(null);
     try {
         const url = `/api/bigquery/schema?dataset_id=${encodeURIComponent(fullDatasetId)}`;
-        console.log(`Calling Schema API: ${url}`); // Log the exact URL
+        // console.log(`Calling Schema API: ${url}`); // Log the exact URL
         const r = await axiosInstance.get<SchemaResponse>(url);
         setSchemaData(r.data);
     } catch(e){
@@ -404,7 +404,7 @@ const handleDeleteTable = useCallback(async (datasetIdToDeleteFrom: string, tabl
      //     return;
      // }
 
-    console.log(`Attempting to delete table: ${tableIdToDelete} from dataset: ${datasetIdToDeleteFrom}`);
+    // console.log(`Attempting to delete table: ${tableIdToDelete} from dataset: ${datasetIdToDeleteFrom}`);
     // Consider adding a loading state for the specific table being deleted
     try {
         await axiosInstance.delete(`/api/bigquery/datasets/${encodeURIComponent(datasetIdToDeleteFrom)}/tables/${encodeURIComponent(tableIdToDelete)}`);
@@ -475,7 +475,13 @@ useEffect(() => {
 
     const formatBytes = useCallback((bytes: number | null | undefined): string => { if(bytes==null||bytes===undefined||bytes===0)return"0 Bytes"; const k=1024,s=["Bytes","KB","MB","GB","TB"],i=Math.floor(Math.log(bytes)/Math.log(k)); return parseFloat((bytes/Math.pow(k,i)).toFixed(2))+" "+s[i]; }, []);
     const formatDate = useCallback((dateString: string | null | undefined): string => { if(!dateString)return"N/A"; try{return new Date(dateString).toLocaleString();}catch(e){return dateString;} }, []);
-    const copyToClipboard = useCallback((text: string, message: string = "Copied!"): void => { navigator.clipboard.writeText(text).then(()=>{console.log(message); /* TODO: Add toast */}).catch(err=>{console.error("Copy failed:",err);}); }, []);
+    const copyToClipboard = useCallback((text: string, _message: string = "Copied!"): void => { navigator.clipboard.writeText(text).then(()=>{
+        
+        
+        // console.log(message); 
+        
+        
+        /* TODO: Add toast */}).catch(err=>{console.error("Copy failed:",err);}); }, []);
     const toggleFavorite = useCallback((tableId: string): void => setFavoriteTables(prev => prev.includes(tableId)?prev.filter(id=>id!==tableId):[...prev,tableId]), []);
     const addToHistory = useCallback((newItem: Omit<QueryHistoryItem, 'id' | 'timestamp'>): void => {
         const ts = new Date().toISOString();
@@ -491,7 +497,7 @@ useEffect(() => {
     
 
     const fetchJobResults = useCallback(async (currentJobId: string, loc: string, pageToken?: string | null) => {
-        console.log(`Fetching results job ${currentJobId}, page: ${pageToken ? 'next' : 'first'}`);
+        // console.log(`Fetching results job ${currentJobId}, page: ${pageToken ? 'next' : 'first'}`);
         setLoadingResults(true);
         setResultsError("");
         try {
@@ -550,7 +556,7 @@ useEffect(() => {
             return jobResults.rows; // Return original rows if no filters are active
         }
 
-        console.log("Applying filters:", activeFilters);
+        // console.log("Applying filters:", activeFilters);
         let data = [...jobResults.rows];
 
         Object.entries(activeFilters).forEach(([columnName, filterValue]) => {
@@ -606,14 +612,18 @@ useEffect(() => {
                 }
             });
         });
-        console.log("Filtered data count:", data.length);
+        // console.log("Filtered data count:", data.length);
         return data;
     }, [jobResults?.rows, activeFilters]);
     
     
 
     // fetchJobStatus: Mostly unchanged, triggers fetchJobResults
-    const fetchJobStatus = useCallback(async (currentJobId: string, loc: string) => { console.log(`Polling job: ${currentJobId}`); setJobError(""); try { const r=await axiosInstance.get<JobStatusResponse>(`/api/bigquery/jobs/${currentJobId}?location=${loc}`); const d=r.data; setJobStatus(d); if(d.state==='DONE'){ stopPolling(); setIsRunningJob(false); if(d.error_result){ const errMsg=`Job failed: ${d.error_result.message||d.error_result.reason||'Unknown'}`; setJobError(errMsg); setJobResults(null); addToHistory({sql,success:false}); } else { setJobError(""); setCurrentOutputTab("results"); // Switch to results tab on SUCCESSFUL completion
+    const fetchJobStatus = useCallback(async (currentJobId: string, loc: string) => { 
+        
+        // console.log(`Polling job: ${currentJobId}`);
+        
+        setJobError(""); try { const r=await axiosInstance.get<JobStatusResponse>(`/api/bigquery/jobs/${currentJobId}?location=${loc}`); const d=r.data; setJobStatus(d); if(d.state==='DONE'){ stopPolling(); setIsRunningJob(false); if(d.error_result){ const errMsg=`Job failed: ${d.error_result.message||d.error_result.reason||'Unknown'}`; setJobError(errMsg); setJobResults(null); addToHistory({sql,success:false}); } else { setJobError(""); setCurrentOutputTab("results"); // Switch to results tab on SUCCESSFUL completion
                  if(d.statement_type==='SELECT'||d.statement_type===undefined){ await fetchJobResults(currentJobId,loc); // Fetch first page
                 } else { setJobResults({rows:[],total_rows_in_result_set:d.num_dml_affected_rows??0,schema:[]}); addToHistory({sql,success:true,rowCount:d.num_dml_affected_rows}); } } } else { setIsRunningJob(true); } } catch (e:any){ console.error("Error fetching status:",e); const m=getErrorMessage(e); if(e.response?.status===404){ setJobError(`Job ${currentJobId} not found.`); stopPolling(); setIsRunningJob(false); addToHistory({sql,success:false}); } else { setJobError(`Fetch status failed: ${m}`); } } }, [stopPolling, fetchJobResults, sql, addToHistory, getErrorMessage]); // Added setCurrentOutputTab dependency indirectly via fetchJobResults
 
@@ -626,7 +636,7 @@ useEffect(() => {
 // ActiveVisualizationConfig, BackendChartConfig, RowData) are correctly defined.
 
 const handleExcelDownload = useCallback(async () => {
-    console.log("[DEBUG] handleExcelDownload: Entry point");
+    // console.log("[DEBUG] handleExcelDownload: Entry point");
 
     if (!jobId || !sql || !jobLocation) {
         console.error("[DEBUG] handleExcelDownload: Missing Job ID, SQL, or Location for download.");
@@ -643,17 +653,17 @@ const handleExcelDownload = useCallback(async () => {
     let dataUrl: string | null = null; 
 
     // --- Log states BEFORE the chart capture condition ---
-    console.log("[DEBUG] handleExcelDownload: Before chart capture check:");
-    console.log(`[DEBUG]   activeVisualization:`, activeVisualization ? JSON.stringify(activeVisualization) : 'null');
-    console.log(`[DEBUG]   chartContainerRef.current exists:`, !!chartContainerRef.current);
-    console.log(`[DEBUG]   currentOutputTab:`, currentOutputTab);
-    console.log(`[DEBUG]   filteredData.length:`, filteredData.length);
+    // console.log("[DEBUG] handleExcelDownload: Before chart capture check:");
+    // console.log(`[DEBUG]   activeVisualization:`, activeVisualization ? JSON.stringify(activeVisualization) : 'null');
+    // console.log(`[DEBUG]   chartContainerRef.current exists:`, !!chartContainerRef.current);
+    // console.log(`[DEBUG]   currentOutputTab:`, currentOutputTab);
+    // console.log(`[DEBUG]   filteredData.length:`, filteredData.length);
 
     // --- Capture chart image if a visualization is active and rendered ON THE VISUALIZE TAB ---
     if (activeVisualization && chartContainerRef.current && currentOutputTab === 'visualize' && filteredData.length > 0) {
-        console.log("[DEBUG] handleExcelDownload: ALL conditions for chart capture MET. Attempting image capture...");
+        // console.log("[DEBUG] handleExcelDownload: ALL conditions for chart capture MET. Attempting image capture...");
         try {
-            console.log("[DEBUG] htmlToImage: About to call toPng on ref:", chartContainerRef.current);
+            // console.log("[DEBUG] htmlToImage: About to call toPng on ref:", chartContainerRef.current);
             dataUrl = await htmlToImage.toPng(chartContainerRef.current, { 
                 quality: 0.95, 
                 pixelRatio: 1.5,
@@ -661,13 +671,13 @@ const handleExcelDownload = useCallback(async () => {
                 // are causing issues, though it shouldn't be if chartContainerRef only wraps the chart.
                 // filter: (node) => { ... } 
             });
-            console.log("[DEBUG] htmlToImage: toPng call completed. dataUrl (first 100 chars):", dataUrl ? dataUrl.substring(0, 100) : "null or undefined");
+            // console.log("[DEBUG] htmlToImage: toPng call completed. dataUrl (first 100 chars):", dataUrl ? dataUrl.substring(0, 100) : "null or undefined");
 
             if (dataUrl && dataUrl.includes(',')) {
                 chartImageBase64 = dataUrl.split(',')[1];
-                console.log("[DEBUG] htmlToImage: Split successful. chartImageBase64 is SET (length:", chartImageBase64?.length, ").");
+                // console.log("[DEBUG] htmlToImage: Split successful. chartImageBase64 is SET (length:", chartImageBase64?.length, ").");
             } else {
-                console.warn("[DEBUG] htmlToImage: dataUrl was null, undefined, or did not contain ','. dataUrl:", dataUrl);
+                // console.warn("[DEBUG] htmlToImage: dataUrl was null, undefined, or did not contain ','. dataUrl:", dataUrl);
             }
             
             // Map frontend ActiveVisualizationConfig to BackendChartConfig
@@ -684,7 +694,7 @@ const handleExcelDownload = useCallback(async () => {
 
         } catch (imgError: any) {
             console.error("[DEBUG] handleExcelDownload: FAILED to capture chart image (htmlToImage.toPng threw an error):", imgError);
-            console.log("[DEBUG] htmlToImage: Value of dataUrl in catch block:", dataUrl); // Log dataUrl state in catch
+            // console.log("[DEBUG] htmlToImage: Value of dataUrl in catch block:", dataUrl); // Log dataUrl state in catch
             if (imgError && imgError.message) {
                 console.error("[DEBUG]   Error message:", imgError.message);
             }
@@ -695,7 +705,7 @@ const handleExcelDownload = useCallback(async () => {
             // chartImageBase64, backendChartConfigPayload, chartDataForPayload will remain null or their initial values
         }
     } else {
-        console.warn("[DEBUG] handleExcelDownload: ONE OR MORE conditions for chart capture NOT MET (activeViz, ref, currentTab, or data).");
+        // console.warn("[DEBUG] handleExcelDownload: ONE OR MORE conditions for chart capture NOT MET (activeViz, ref, currentTab, or data).");
         if (!activeVisualization) console.warn("[DEBUG]   Reason: activeVisualization is falsy.");
         if (!chartContainerRef.current) console.warn("[DEBUG]   Reason: chartContainerRef.current is falsy/null (Chart component might not be mounted/visible if not on Visualize tab).");
         if (currentOutputTab !== 'visualize') console.warn(`[DEBUG]   Reason: currentOutputTab is '${currentOutputTab}', not 'visualize'.`);
@@ -712,10 +722,10 @@ const handleExcelDownload = useCallback(async () => {
             chart_data: chartDataForPayload,
         };
         
-        console.log("[DEBUG] FINAL PAYLOAD CHECK: chart_image_base64 is " + (chartImageBase64 ? `PRESENT (length: ${chartImageBase64.length})` : "NULL or EMPTY"));
-        console.log("[DEBUG] FINAL PAYLOAD CHECK: chart_config is " + (backendChartConfigPayload ? JSON.stringify(backendChartConfigPayload) : "NULL"));
+        // console.log("[DEBUG] FINAL PAYLOAD CHECK: chart_image_base64 is " + (chartImageBase64 ? `PRESENT (length: ${chartImageBase64.length})` : "NULL or EMPTY"));
+        // console.log("[DEBUG] FINAL PAYLOAD CHECK: chart_config is " + (backendChartConfigPayload ? JSON.stringify(backendChartConfigPayload) : "NULL"));
         
-        console.log("[DEBUG] Requesting Excel export with payload (actual values):", payload );
+        // console.log("[DEBUG] Requesting Excel export with payload (actual values):", payload );
 
         const response = await axiosInstance.post('/api/export/query-to-excel', payload, {
             responseType: 'blob',
@@ -738,7 +748,7 @@ const handleExcelDownload = useCallback(async () => {
         toast({ variant: "destructive", title: "Download Failed", description: errorMessage });
     } finally {
         setIsDownloadingExcel(false);
-        console.log("[DEBUG] handleExcelDownload: Exiting function.");
+        // console.log("[DEBUG] handleExcelDownload: Exiting function.");
     }
 }, [
     jobId, sql, jobLocation, toast, getErrorMessage, setIsDownloadingExcel,
@@ -760,7 +770,7 @@ const handleExcelDownload = useCallback(async () => {
              return;
         }
 
-        console.log(`Submitting SQL for dataset ${fullDatasetId}:`, sql);
+        // console.log(`Submitting SQL for dataset ${fullDatasetId}:`, sql);
         stopPolling();
         setJobId(null);
         setJobLocation(null);
@@ -800,12 +810,12 @@ const handleExcelDownload = useCallback(async () => {
               location: selectedDatasetMetadata.location,
             };
             // +++ MODIFICATION END +++
-            console.log("Job Payload:", payload);
+            // console.log("Job Payload:", payload);
 
             // Fire the request
             const r = await axiosInstance.post<JobSubmitResponse>("/api/bigquery/jobs", payload);
             const { job_id, location: jobLoc, state } = r.data;
-            console.log("Job Submitted:", r.data);
+            // console.log("Job Submitted:", r.data);
             setJobId(job_id);
             setJobLocation(jobLoc || selectedDatasetMetadata.location);
             setJobStatus({ job_id, location: jobLoc || selectedDatasetMetadata.location, state: state as any });
@@ -852,14 +862,14 @@ const handleExcelDownload = useCallback(async () => {
         }
         // +++ End Refined Guard Clause +++
 
-        console.log(`Fetching tables for dataset: ${fullDatasetId}`); // Log the ID being used
+        // console.log(`Fetching tables for dataset: ${fullDatasetId}`); // Log the ID being used
         setLoadingTables(true);
         setListTablesError("");
         setTables([]); // Clear previous tables
         setFilteredTables([]);
         try {
             const url = `/api/bigquery/tables?dataset_id=${encodeURIComponent(fullDatasetId)}`;
-            console.log(`Calling Table API: ${url}`); // Log the exact URL
+            // console.log(`Calling Table API: ${url}`); // Log the exact URL
             const r = await axiosInstance.get<TableInfo[]>(url);
             setTables(r.data);
             setFilteredTables(r.data);
@@ -1049,9 +1059,9 @@ const handleGenerateSql = useCallback(async () => {
             if (selectedAiColumns.size > 0) {
                 payload.selected_columns = Array.from(selectedAiColumns);
             }
-            console.log("Sending SEMI_AUTO payload:", payload);
+            // console.log("Sending SEMI_AUTO payload:", payload);
         } else {
-             console.log("Sending AUTO payload:", payload);
+            //  console.log("Sending AUTO payload:", payload);
         }
 
         const r = await axiosInstance.post<NLQueryResponse>('/api/bigquery/nl2sql', payload);
@@ -1083,7 +1093,7 @@ const handleGenerateSql = useCallback(async () => {
 // Add this useEffect for initial dataset loading
 useEffect(() => {
     const fetchInitialDatasets = async () => {
-        console.log("Fetching initial list of datasets...");
+        // console.log("Fetching initial list of datasets...");
         setLoadingDatasets(true);
         setDatasetError(null);
         setAvailableDatasets([]);
@@ -1119,7 +1129,7 @@ useEffect(() => {
 }, [getErrorMessage, toast]);
 const handleDatasetChange = (newDatasetId: string) => {
     if (newDatasetId && newDatasetId !== selectedDatasetId) {
-        console.log(`Dataset selection changed to: ${newDatasetId}`);
+        // console.log(`Dataset selection changed to: ${newDatasetId}`);
         toast({title: `Switching to dataset: ${newDatasetId}`, duration: 1500});
         setSelectedDatasetId(newDatasetId);
     }
@@ -1164,7 +1174,7 @@ useEffect(() => {
             const generatedFilters: FilterConfig[] = [];
             const MAX_CATEGORICAL_OPTIONS = 100; // Limit unique values for performance
 
-            console.log("Generating filters from results...");
+            // console.log("Generating filters from results...");
 
             schema.forEach(field => {
                 let filterType: FilterType | null = null;
@@ -1250,7 +1260,7 @@ useEffect(() => {
                 }
             });
 
-            console.log("Available filters generated:", generatedFilters);
+            // console.log("Available filters generated:", generatedFilters);
             setAvailableFilters(generatedFilters);
             setActiveFilters({}); // Reset active filters when results/schema change
 
@@ -1264,7 +1274,7 @@ useEffect(() => {
 
     // --- Filter Handlers ---
     const handleFilterChange = useCallback((columnName: string, value: ActiveFilterValue | null) => {
-        console.log(`Filter change: ${columnName}`, value);
+        // console.log(`Filter change: ${columnName}`, value);
         setActiveFilters(prev => {
             const newState = { ...prev };
             if (value === null ||
@@ -1284,13 +1294,18 @@ useEffect(() => {
     }, []);
 
     const handleClearAllFilters = useCallback(() => {
-        console.log("Clearing all filters");
+        // console.log("Clearing all filters");
         setActiveFilters({});
         // Visualization validity check will happen in the useEffect hook.
     }, []);
 
     // --- Existing Effects ---
-    useEffect(() => { if(jobId&&jobLocation&&isRunningJob&&!pollingIntervalRef.current){ fetchJobStatus(jobId,jobLocation); pollingIntervalRef.current=setInterval(()=>{fetchJobStatus(jobId,jobLocation);},POLLING_INTERVAL_MS); console.log("Polling started."); } return()=>{stopPolling();}; }, [jobId,jobLocation,isRunningJob,fetchJobStatus,stopPolling]);
+    useEffect(() => { if(jobId&&jobLocation&&isRunningJob&&!pollingIntervalRef.current){ fetchJobStatus(jobId,jobLocation); pollingIntervalRef.current=setInterval(()=>{fetchJobStatus(jobId,jobLocation);},POLLING_INTERVAL_MS); 
+    
+    
+    // console.log("Polling started."); 
+
+} return()=>{stopPolling();}; }, [jobId,jobLocation,isRunningJob,fetchJobStatus,stopPolling]);
     useEffect(() => { fetchTables(); fetchSchema(); }, [fetchTables, fetchSchema]);
     useEffect(() => { const lq=tableSearchQuery.toLowerCase(); setFilteredTables(tables.filter(t=>t.tableId.toLowerCase().includes(lq))); }, [tableSearchQuery, tables]);
     // Modify history effect to use original row count if available
@@ -1299,7 +1314,7 @@ useEffect(() => {
     // Add history item when a job finishes successfully
     // Check jobStatus directly for the 'DONE' state without error
     if (jobId && jobStatus?.state === 'DONE' && !jobStatus.error_result && !isRunningJob) {
-        console.log("Attempting to add successful query to history:", jobId, jobStatus); // Debug log
+        // console.log("Attempting to add successful query to history:", jobId, jobStatus); // Debug log
 
         let durationMs: number | undefined = undefined;
         if (jobStatus.end_time && jobStatus.start_time) {
@@ -1343,7 +1358,7 @@ useEffect(() => {
     useEffect(() => {
         // --- Trigger AI Features when results are available and job is done ---
         if (jobResults?.schema && jobResults.rows.length > 0 && !isRunningJob && jobStatus?.state === 'DONE' && !jobStatus.error_result) {
-            console.log("Results available, triggering AI features (suggestions & summary)...");
+            // console.log("Results available, triggering AI features (suggestions & summary)...");
 
             // --- Fetch AI Suggestions (Visualization) ---
             const fetchAiSuggestions = async () => {
@@ -1353,7 +1368,8 @@ useEffect(() => {
                 try {
                     const response = await axiosInstance.post<{suggestions: VizSuggestion[], error?: string}>( '/api/bigquery/suggest-visualization', { schema: jobResults.schema, query_sql: sql, result_sample: filteredData.slice(0, 5) });
                     if (response.data.error) { setAiSuggestionError(`AI Viz Error: ${response.data.error}`); return []; }
-                    console.log("AI Suggestions Received:", response.data.suggestions); return response.data.suggestions || [];
+                    // console.log("AI Suggestions Received:", response.data.suggestions); 
+                    return response.data.suggestions || [];
                 } catch (error) { console.error("Error fetching AI suggestions:", error); setAiSuggestionError(`Failed to get AI suggestions: ${getErrorMessage(error)}`); return []; }
                 finally { setLoadingAiSuggestions(false); }
             };
@@ -1370,7 +1386,7 @@ useEffect(() => {
              fetchAiSuggestions().then(aiSuggestions => {
                  const combined = [...ruleBasedSuggestions];
                  aiSuggestions.forEach(aiSugg => { if (!combined.some(rbSugg => rbSugg.chart_type === aiSugg.chart_type && rbSugg.x_axis_column === aiSugg.x_axis_column && rbSugg.y_axis_columns[0] === aiSugg.y_axis_columns[0])) { combined.push({...aiSugg, rationale: aiSugg.rationale ?? `AI suggested ${aiSugg.chart_type} chart.` }); } });
-                 console.log("Final combined suggestions:", combined);
+                //  console.log("Final combined suggestions:", combined);
                  setSuggestedCharts(combined);
              });
 
@@ -2026,7 +2042,7 @@ const renderEditorPane = () => {
                                     setSelectedAiTables(new Set());
                                     setSelectedAiColumns(new Set());
                                 }
-                                console.log("AI Mode changed to:", value);
+                                // console.log("AI Mode changed to:", value);
                             }}
                             disabled={generatingSql || !selectedDatasetId}
                         >

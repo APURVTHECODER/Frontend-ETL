@@ -220,12 +220,12 @@ export function UploadView() {
         const uploadResp = await fetch(uploadUrl, { method: 'PUT', headers: { 'Content-Type': file.type }, body: file.file });
         if (!uploadResp.ok) { let errorText = 'Upload failed.'; try { errorText = await uploadResp.text(); } catch { /* ignore */ } throw new Error(`Upload failed: ${uploadResp.status} ${errorText.substring(0, 100)}`); }
         updateFileState(file.id, { progress: 80 });
-        console.log(`[DEBUG] Triggering ETL for file ${file.name}:`, {
-          payload: {
-              object_name: object_name,
-              target_dataset_id: targetDataset
-          }
-      });
+      //   console.log(`[DEBUG] Triggering ETL for file ${file.name}:`, {
+      //     payload: {
+      //         object_name: object_name,
+      //         target_dataset_id: targetDataset
+      //     }
+      // });
       interface ApiErrorResponse {
         detail?: string;
         // Add other possible error response fields if needed

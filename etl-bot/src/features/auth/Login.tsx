@@ -25,9 +25,8 @@ const LoginPage: React.FC = () => {
     setIsLoading(true);
     try {
       // Sign in using a popup window
-      const result = await signInWithPopup(auth, googleProvider);
-      const loggedInUser = result.user;
-      console.log("Google Sign-In Success:", loggedInUser);
+      await signInWithPopup(auth, googleProvider);
+      // console.log("Google Sign-In Success:", loggedInUser);
       // Firebase's onAuthStateChanged listener in AuthContext will handle state update
       // and redirection will happen automatically in App.tsx or ProtectedRoute
       // Navigate back to the page the user was trying to access, or home

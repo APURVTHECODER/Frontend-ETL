@@ -42,9 +42,9 @@ const AppControls: React.FC = () => { // Renamed from ViewSwitcher for clarity
         try {
             await signOut(auth);
             navigate(LOGIN_PATH);
-            console.log("User signed out");
+            // console.log("User signed out");
         } catch (error) {
-            console.error("Sign out error:", error);
+            // console.error("Sign out error:", error);
         }
     };
 
