@@ -1810,18 +1810,83 @@ useEffect(() => {
                 </div>
                 {statsDisp}
                 {pageControls}
-                <div className="flex-grow overflow-hidden border rounded-md mt-1 bg-card">
-                    <ScrollArea className="h-full">
-                        <table className="w-full text-xs">
-                            <thead className="sticky top-0 bg-muted z-10">
-                                <tr>{previewColumns.map(c=>(<th key={c} className="px-2 py-1.5 text-left font-medium text-muted-foreground border-b border-r last:border-r-0"><div className="flex items-center cursor-pointer group" onClick={()=>handlePreviewSort(c)}><span className="truncate max-w-32">{c}</span><div className="ml-1 text-muted-foreground/50 group-hover:text-muted-foreground">{previewSortConfig?.key===c?(previewSortConfig.direction==='asc'?<SortAsc className="h-3 w-3"/>:<SortDesc className="h-3 w-3"/>):<ArrowUpDown className="h-3 w-3"/>}</div></div></th>))}</tr>
-                            </thead>
-                            <tbody className="font-mono divide-y divide-border text-foreground">
-                                {previewRows.map((r,i)=>(<tr key={i} className="hover:bg-muted/50">{previewColumns.map(c=>(<td key={c} className="px-2 py-1 max-w-40 truncate border-r last:border-r-0" title={String(r[c]??null)}>{r[c]!=null?String(r[c]):<span className="italic text-muted-foreground">null</span>}</td>))}</tr>))}
-                            </tbody>
-                        </table>
-                    </ScrollArea>
-                </div>
+<div className="flex-grow overflow-hidden border rounded-md mt-1 bg-card">
+
+    <div className="h-full overflow-y-auto">
+
+        <div className="overflow-x-auto">
+
+            <table className="w-full text-xs" style={{ tableLayout: 'auto' }}>
+
+                <thead className="sticky top-0 bg-muted z-10">
+
+                    <tr>
+
+                        {previewColumns.map(c=>(
+
+                            <th key={c} className="px-2 py-1.5 text-left font-medium text-muted-foreground border-b border-r last:border-r-0 whitespace-nowrap">
+
+                                <div className="flex items-center cursor-pointer group" onClick={()=>handlePreviewSort(c)}>
+
+                                    <span>{c}</span>
+
+                                    <div className="ml-1 text-muted-foreground/50 group-hover:text-muted-foreground">
+
+                                        {previewSortConfig?.key===c ? 
+
+                                            (previewSortConfig.direction==='asc' ? 
+
+                                                <SortAsc className="h-3 w-3"/> : 
+
+                                                <SortDesc className="h-3 w-3"/>
+
+                                            ) : 
+
+                                            <ArrowUpDown className="h-3 w-3"/>
+
+                                        }
+
+                                    </div>
+
+                                </div>
+
+                            </th>
+
+                        ))}
+
+                    </tr>
+
+                </thead>
+
+                <tbody className="font-mono divide-y divide-border text-foreground">
+
+                    {previewRows.map((r,i)=>(
+
+                        <tr key={i} className="hover:bg-muted/50">
+
+                            {previewColumns.map(c=>(
+
+                                <td key={c} className="px-2 py-1 border-r last:border-r-0 whitespace-nowrap" title={String(r[c]??null)}>
+
+                                    {r[c]!=null ? String(r[c]) : <span className="italic text-muted-foreground">null</span>}
+
+                                </td>
+
+                            ))}
+
+                        </tr>
+
+                    ))}
+
+                </tbody>
+
+            </table>
+
+        </div>
+
+    </div>
+
+</div>
             </div>
         );
     };
@@ -2502,37 +2567,48 @@ const renderEditorPane = () => {
 
             const cols = jobResults.schema.map(f => f.name);
 
+            // This is the container for the results table
             return (
-                <div className="flex-grow overflow-hidden border rounded-md bg-card mt-2">
-                    <ScrollArea className="h-full">
-                        <table className="w-full text-xs">
-                            <thead className="sticky top-0 bg-muted z-10">
-                                <tr>{cols.map(c => (<th key={c} className="px-2 py-1.5 text-left font-medium text-muted-foreground border-b border-r last:border-r-0">
-                                    <div className="flex items-center" title={c}><span className="truncate max-w-32">{c}</span>
-                                         {jobResults.schema && (
-                                             <TooltipProvider delayDuration={300}><Tooltip><TooltipTrigger asChild>
-                                                 <Info className="ml-1 h-3 w-3 text-muted-foreground/50 hover:text-muted-foreground"/>
-                                             </TooltipTrigger><TooltipContent className="text-xs">
-                                                    Type: {jobResults.schema.find(f => f.name === c)?.type ?? '?'}<br/>
-                                                     Mode: {jobResults.schema.find(f => f.name === c)?.mode ?? '?'}
-                                                 </TooltipContent></Tooltip></TooltipProvider>
-                                        )}
-                                     </div>
-                                </th>))}</tr>
-                            </thead>
-                            <tbody className="font-mono divide-y divide-border text-foreground">
-                                {dataToRender.map((r, i) => (
-                                    <tr key={i} className="hover:bg-muted/50">
-                                        {cols.map(c => (
-                                            <td key={c} className="px-2 py-1 max-w-40 truncate border-r last:border-r-0" title={String(r[c] ?? null)}>
-                                                {r[c] != null ? String(r[c]) : <span className="italic text-muted-foreground">null</span>}
-                                            </td>
-                                        ))}
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </ScrollArea>
+                <div className="flex-grow overflow-hidden border rounded-md bg-card mt-2"> {/* Parent container, overflow-hidden is fine */}
+                    <div className="h-full overflow-y-auto"> {/* Explicitly for VERTICAL scroll */}
+                        <div className="overflow-x-auto"> {/* Explicitly for HORIZONTAL scroll */}
+                            <table className="w-full text-xs" style={{ tableLayout: 'auto' }}> {/* Let table define its width */}
+                                <thead className="sticky top-0 bg-muted z-10">
+                                    <tr>{cols.map(c => (
+                                        <th key={c} className="px-2 py-1.5 text-left font-medium text-muted-foreground border-b border-r last:border-r-0 whitespace-nowrap">
+                                            <div className="flex items-center" title={c}>
+                                                <span>{c}</span> {/* Removed truncate to allow full header to be seen on scroll */}
+                                                {jobResults.schema && (
+                                                    <TooltipProvider delayDuration={300}>
+                                                        <Tooltip>
+                                                            <TooltipTrigger asChild>
+                                                                <Info className="ml-1 h-3 w-3 text-muted-foreground/50 hover:text-muted-foreground"/>
+                                                            </TooltipTrigger>
+                                                            <TooltipContent className="text-xs">
+                                                                Type: {jobResults.schema.find(f => f.name === c)?.type ?? '?'}<br/>
+                                                                Mode: {jobResults.schema.find(f => f.name === c)?.mode ?? '?'}
+                                                            </TooltipContent>
+                                                        </Tooltip>
+                                                    </TooltipProvider>
+                                                )}
+                                            </div>
+                                        </th>
+                                    ))}</tr>
+                                </thead>
+                                <tbody className="font-mono divide-y divide-border text-foreground">
+                                    {dataToRender.map((r, i) => (
+                                        <tr key={i} className="hover:bg-muted/50">
+                                            {cols.map(c => (
+                                                <td key={c} className="px-2 py-1 border-r last:border-r-0 whitespace-nowrap" title={String(r[c] ?? null)}>
+                                                    {r[c] != null ? String(r[c]) : <span className="italic text-muted-foreground">null</span>}
+                                                </td>
+                                            ))}
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
                 </div>
             );
         };
