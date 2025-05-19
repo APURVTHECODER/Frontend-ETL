@@ -3014,23 +3014,89 @@ const renderEditorPane = () => {
                          </ResponsiveContainer>
                      );
                  }
-                case 'pie': { /* ... PieChart aggregating `data` ... */
-                     const aggregatedPieData: { [key: string]: number } = {};
-                     data.forEach(row => { const category = String(row[x_axis_column] ?? 'Unknown'); const value = Number(row[validYCols[0]]); if (!isNaN(value)) { aggregatedPieData[category] = (aggregatedPieData[category] || 0) + value; }});
-                     const formattedDataPie = Object.entries(aggregatedPieData).map(([name, value]) => ({ name, value }));
-                    if (formattedDataPie.length === 0) { return <p className="p-4 text-orange-500">No valid data for pie chart after filtering.</p>; }
-                     return (
-                         <ResponsiveContainer width="100%" height="100%">
-                             <PieChart>
-                                 <Pie data={formattedDataPie} cx="50%" cy="50%" labelLine={false} outerRadius="80%" fill="#8884d8" dataKey="value" nameKey="name" label={{ fontSize: 10, fill: 'hsl(var(--foreground))' }}>
-                                     {formattedDataPie.map((_, index) => ( <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} /> ))}
-                                 </Pie>
-                                 <RechartsTooltip                                     contentStyle={tooltipContentStyle}
-                                    itemStyle={tooltipItemStyle} 
-                                    labelStyle={tooltipLabelStyle} />
-                                 <Legend wrapperStyle={{ fontSize: '11px' }}/>
-                             </PieChart>
-                         </ResponsiveContainer>
+                case 'pie': {
+                    // 1. Aggregate data for the pie chart
+                    const aggregatedData: { [key: string]: number } = {};
+                    data.forEach(row => {
+                        const category = String(row[x_axis_column] ?? 'Unknown');
+                        const value = Number(row[validYCols[0]]); // Assuming first y_axis_column is the value
+                        if (!isNaN(value)) {
+                            aggregatedData[category] = (aggregatedData[category] || 0) + value;
+                        }
+                    });
+
+                    // Convert to array and calculate total for percentages
+                    let chartDataEntries = Object.entries(aggregatedData).map(([name, value]) => ({ name, value }));
+                    const totalValue = chartDataEntries.reduce((sum, entry) => sum + entry.value, 0);
+
+                    // 2. Implement "Top N + Other" logic
+                    const MAX_PIE_SLICES = 7; // Show top 6 + "Other" if more
+                    let processedPieData = chartDataEntries;
+
+                    if (chartDataEntries.length > MAX_PIE_SLICES) {
+                        // Sort by value descending to find top N
+                        chartDataEntries.sort((a, b) => b.value - a.value);
+                        
+                        const topNData = chartDataEntries.slice(0, MAX_PIE_SLICES - 1);
+                        const otherData = chartDataEntries.slice(MAX_PIE_SLICES - 1);
+                        
+                        const otherValue = otherData.reduce((sum, item) => sum + item.value, 0);
+                        
+                        processedPieData = [...topNData];
+                        if (otherValue > 0) {
+                            processedPieData.push({ name: "Other", value: otherValue });
+                        }
+                    }
+                    
+                    // Add percentage to each slice for tooltip and potential label
+                    const finalPieData = processedPieData.map(entry => ({
+                        ...entry,
+                        percent: totalValue > 0 ? (entry.value / totalValue) : 0,
+                    })).sort((a,b) => b.value - a.value); // Sort final display by value
+
+                    if (finalPieData.length === 0) {
+                        return <p className="p-4 text-orange-500">No valid data for pie chart after filtering.</p>;
+                    }
+
+                    return (
+                        <ResponsiveContainer width="100%" height="100%">
+                            <PieChart margin={{ top: 5, right: 5, bottom: 5, left: 5 }}>
+                                <Pie
+                                    data={finalPieData}
+                                    cx="50%"
+                                    cy="50%" // Adjust cy if legend is at bottom to give more space
+                                    labelLine={false}
+                                    outerRadius="70%" // Adjust radius to make space for legend/labels
+                                    fill="#8884d8"
+                                    dataKey="value"
+                                    nameKey="name"
+                                    // Optional: Minimal labels on larger slices
+                                    label={({  percent }) =>
+                                        (percent && percent * 100 > 5) ? `${(percent * 100).toFixed(0)}%` : ''
+                                    }
+                                >
+                                    {finalPieData.map((_, index) => (
+                                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                                    ))}
+                                </Pie>
+                                <RechartsTooltip
+                                    contentStyle={tooltipContentStyle}
+                                    itemStyle={tooltipItemStyle}
+                                    labelStyle={tooltipLabelStyle}
+                                    formatter={(value: number, name: string, props: any) => {
+                                        const percentage = props.payload.percent !== undefined ? `(${(props.payload.percent * 100).toFixed(1)}%)` : '';
+                                        return [`${value.toLocaleString()} ${percentage}`, name];
+                                    }}
+                                />
+                                <Legend
+                                    wrapperStyle={{ fontSize: '11px', lineHeight: '20px', paddingTop: '15px' }}
+                                    // layout="vertical" // Consider if too many legend items
+                                    // align="right"
+                                    // verticalAlign="middle"
+                                    iconSize={10}
+                                />
+                            </PieChart>
+                        </ResponsiveContainer>
                     );
                 }
                  case 'scatter': { /* ... ScatterChart using `data` ... */
