@@ -1,5 +1,5 @@
 // src/features/upload/UploadView.tsx
-import { useState, useCallback,useEffect  } from 'react';
+import { useState, useCallback,useEffect,useMemo  } from 'react';
 import { UploadHeader } from './components/UploadHeader';
 import { UploadArea } from './components/UploadArea';
 import { FileList } from './components/FileList';
@@ -44,6 +44,13 @@ export function UploadView() {
   const [loadingDatasets, setLoadingDatasets] = useState<boolean>(true);
   const [datasetError, setDatasetError] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState<boolean>(false);
+// src/features/upload/UploadView.tsx
+const canCreateWorkspace = useMemo(() => {
+  if (isRoleLoading || loadingDatasets) { // <<<< KEY ADDITION
+    return false; // Decision cannot be made reliably yet
+  }
+  return isAdmin || (!isAdmin && availableDatasets.length === 0);
+}, [isAdmin, isRoleLoading, loadingDatasets, availableDatasets.length]);
   // We can derive a general 'isProcessing' state
   const isProcessing = isUploading || isDeleting; // Add || isCreating if Create had its own loading state here
   const fetchDatasets = async () => {
@@ -57,20 +64,32 @@ export function UploadView() {
       );
       setAvailableDatasets(datasets);
   
-      if (datasets.length > 0 && !selectedDatasetId) {
-        setSelectedDatasetId(datasets[0].datasetId);
-      } else if (datasets.length === 0) {
+      if (datasets.length > 0) {
+        // If datasets are available, select the first one if nothing is selected
+        // or if the current selection is no longer in the list (e.g., after deletion by admin)
+        if (!selectedDatasetId || !datasets.find(d => d.datasetId === selectedDatasetId)) {
+          // console.log("[UploadView] Selecting first dataset:", datasets[0].datasetId);
+          setSelectedDatasetId(datasets[0].datasetId);
+        }
+      } else {
+        // No datasets returned for this user
         setSelectedDatasetId("");
-        setDatasetError("Please contact admin for access to workspace.");
+        console.log("[UploadView] No datasets returned for user.");
+        // --- CRITICAL CHANGE: DO NOT set a generic error if the user might be able to create one ---
+        // If it's not an admin and they can create, this is fine.
+        // An error will only be shown if a fetch *actually* failed (caught in catch block)
+        // or if it's an admin with no datasets (they can create).
+        // A non-admin who cannot create and has no datasets will be guided by DatasetActions.
       }
     } catch (err: any) {
-      console.error("Error fetching datasets:", err);
+      console.error("[UploadView] Error fetching datasets:", err);
       const message = (err as any).isAxiosError ? err.response?.data?.detail || err.message : err.message;
-      setDatasetError(`Failed to load datasets: ${message}`);
-      setAvailableDatasets([]); // Clear datasets on error
-      setSelectedDatasetId(""); // Clear selection on error
+      setDatasetError(`Failed to load workspace list: ${message}`);
+      setAvailableDatasets([]); 
+      setSelectedDatasetId(""); 
     } finally {
       setLoadingDatasets(false);
+      // console.log("[UploadView] fetchDatasets finished. LoadingDatasets:", false);
     }
   };
   useEffect(() => {
@@ -79,9 +98,9 @@ export function UploadView() {
   }, []);
   
   // Now this works too:
-  const handleDatasetCreated = () => {
-    fetchDatasets(); // ✅ This will work now
-  }; // Empty dependency array ensures this runs only once on mount
+const handleDatasetCreated = useCallback(() => {
+  fetchDatasets(); // This will set loadingDatasets to true, then false.
+}, [fetchDatasets]); // Empty dependency array ensures this runs only once on mount
   // +++ MODIFICATION END +++
   const handleDeleteDatasetConfirmed = async () => {
     if (!selectedDatasetId || !isAdmin) return; // Guard again
@@ -293,7 +312,6 @@ export function UploadView() {
           <Label htmlFor="dataset-select" className="block text-sm font-medium text-muted-foreground">
           Workspace <span className="text-destructive">*</span>
           </Label>
-          {isAdmin && (
           <DatasetActions
                         isAdmin={isAdmin}
                         isRoleLoading={isRoleLoading}
@@ -302,8 +320,9 @@ export function UploadView() {
                         isProcessing={isProcessing} // Pass combined processing state
                         onDatasetCreated={handleDatasetCreated} // Callback for create button
                         onDeleteConfirmed={handleDeleteDatasetConfirmed} // Callback for delete button
+                        canUserCreateWorkspace={canCreateWorkspace} 
+                        hasExistingWorkspaces={availableDatasets.length > 0}
                     />
-                  )}
           {/* Loading State */}
           {loadingDatasets && (
               <div className="flex items-center text-sm text-muted-foreground">
@@ -342,12 +361,12 @@ export function UploadView() {
                       <SelectContent>
                           {availableDatasets.length === 0 ? (
                               <div className="px-4 py-2 text-sm text-muted-foreground italic">
-                                  No datasets found. Create one?
+                                  No workspace found. Create one?
                               </div>
                           ) : (
                               availableDatasets.map(ds => (
                                   <SelectItem key={ds.datasetId} value={ds.datasetId}>
-                                      {ds.datasetId} ({ds.location})
+                                      {ds.datasetId}
                                   </SelectItem>
                               ))
                           )}

@@ -61,6 +61,7 @@ export function CreateDataset({ onDatasetCreated, defaultLocation = "US" }: Crea
 
   const handleCreate = async () => {
     if (!validateDatasetId(newDatasetId)) {
+      // console.log("[CreateDataset] Attempting to create dataset with ID:", newDatasetId); // <<< ADD THIS LOG
       setError("Invalid Dataset ID. Use only letters, numbers, and underscores (a-z, A-Z, 0-9, _). Max length 1024.");
       return;
     }
@@ -85,7 +86,7 @@ export function CreateDataset({ onDatasetCreated, defaultLocation = "US" }: Crea
 
     } catch (err: any) {
       console.error("Error creating dataset:", err);
-      let message = "Failed to create dataset.";
+      let message = "Failed to create workspace.";
       if ((err as any).isAxiosError) {
         if (err.response?.status === 409) {
           message = `Dataset "${newDatasetId}" already exists.`;
@@ -116,9 +117,9 @@ export function CreateDataset({ onDatasetCreated, defaultLocation = "US" }: Crea
       </DialogTrigger>
       <DialogContent className="sm:max-w-[500px]">
         <DialogHeader className="space-y-2">
-          <DialogTitle>Create New BigQuery Dataset</DialogTitle>
+          <DialogTitle>Create New Workspace</DialogTitle>
           <DialogDescription>
-            Enter a unique ID for your new dataset. It will be created in the default project/location.
+            Enter a unique name for your new workspace. It will be created in the default project.
           </DialogDescription>
         </DialogHeader>
 
@@ -133,7 +134,7 @@ export function CreateDataset({ onDatasetCreated, defaultLocation = "US" }: Crea
         <div className="grid gap-6 py-4">
           <div className="grid gap-2">
             <Label htmlFor="dataset-id" className="font-medium">
-              Dataset ID <span className="text-destructive">*</span>
+              Workspace Name <span className="text-destructive">*</span>
             </Label>
             <Input
               id="dataset-id"
@@ -156,7 +157,7 @@ export function CreateDataset({ onDatasetCreated, defaultLocation = "US" }: Crea
               id="description"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="(Optional) Describe the purpose of this dataset"
+              placeholder="(Optional) Describe the purpose of this workspace"
               rows={3}
               disabled={isLoading}
               className="resize-none"
@@ -179,7 +180,7 @@ export function CreateDataset({ onDatasetCreated, defaultLocation = "US" }: Crea
                 Creating...
               </>
             ) : (
-              "Create Dataset"
+              "Create Workspace"
             )}
           </Button>
         </DialogFooter>

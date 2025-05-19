@@ -28,7 +28,7 @@ import {
     MessageSquare,X,
     FileSpreadsheet, Clock ,Sparkles , LightbulbIcon , AlertCircle , Play ,Settings2,Check,ChevronsUpDown,CheckCheck
 } from "lucide-react";
-import { useAuth } from '@/contexts/AuthContext';
+// import { useAuth } from '@/contexts/AuthContext';
 import {
     Command,
     CommandEmpty,
@@ -129,8 +129,8 @@ type ActiveVisualizationConfig = {
     rationale?: string;
   };
 const BigQueryTableViewer: React.FC = () => {
-      const { userProfile,  } = useAuth();
-      const isAdmin = userProfile?.role === 'admin';
+    //   const { userProfile,  } = useAuth();
+    //   const isAdmin = userProfile?.role === 'admin';
     const getErrorMessage = useCallback((error: any): string => { 
         {
             const d=error.response?.data; if(d && typeof d==='object' && 'detail' in d)return String(d.detail);
@@ -852,7 +852,7 @@ const handleExcelDownload = useCallback(async () => {
         // Ensure fullDatasetId is not empty AND contains a dot (basic check for project.dataset format)
         // This prevents calls when selectedDatasetId is set but projectId isn't ready, or vice versa.
         if (!fullDatasetId || !fullDatasetId.includes('.')) {
-            console.warn(`Skipping fetchTables: Invalid or empty fullDatasetId ('${fullDatasetId}')`);
+            // console.warn(`Skipping fetchTables: Invalid or empty fullDatasetId ('${fullDatasetId}')`);
             setTables([]);
             setFilteredTables([]);
             setLoadingTables(false);
@@ -1109,7 +1109,7 @@ useEffect(() => {
                 setSelectedDatasetId(datasets[0].datasetId);
                 toast({ title: `Selected initial dataset: ${datasets[0].datasetId}`, variant: "default", duration: 2000});
             } else {
-                setDatasetError("Please contact admin for access to workspace.");
+                setDatasetError("Create a workspace.");
                 setTables([]);
                 setFilteredTables([]);
                 setSchemaData(null);
@@ -1474,7 +1474,7 @@ useEffect(() => {
                             ) : (
                                 availableDatasets.map(ds => (
                                     <SelectItem key={ds.datasetId} value={ds.datasetId} className="text-xs">
-                                        {ds.datasetId} <span className="text-xs text-muted-foreground ml-1">({ds.location})</span>
+                                        {ds.datasetId} 
                                     </SelectItem>
                                 ))
                             )}
@@ -1542,7 +1542,6 @@ useEffect(() => {
       return (
         <li key={t.tableId} className="flex items-center group">
           {/* Table name button */}
-                    {isAdmin && (
             <AlertDialog>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -1590,7 +1589,8 @@ useEffect(() => {
                 </AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>
-          )}
+
+
                     <button
             onClick={(e) => {
               e.stopPropagation();
