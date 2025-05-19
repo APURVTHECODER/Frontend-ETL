@@ -28,10 +28,7 @@ import {
     ListFilter, // Added Filter icon
     MessageSquare,X,
     FileSpreadsheet, Clock ,Sparkles , LightbulbIcon , AlertCircle , Play ,Settings2,Check,ChevronsUpDown,CheckCheck,    // ... existing icons ...
-
 } from "lucide-react";
-    // Eye, // For tour initiation perhaps, or as a general icon
-    // ChevronDown // For dropdowns if needed
 // import { useAuth } from '@/contexts/AuthContext';
 import {
     Command,
@@ -288,7 +285,7 @@ const BigQueryTableViewer: React.FC = () => {
                 if (workspaceSelectEl && tablesTabEl && aiPromptEl) {
                     console.log('[ViewerTour Polling] Critical initial elements found! Starting tour.');
                     // Short delay for styling/rendering completion
-                    // const timer = setTimeout(() => setRunViewerTour(true), 700);
+                    setTimeout(() => setRunViewerTour(true), 700);
                     clearInterval(intervalId); // Stop polling
                     // No need to return clearTimeout from here as interval is cleared
                 } else if (attempts >= maxAttempts) {
