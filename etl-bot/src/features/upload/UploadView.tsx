@@ -9,10 +9,12 @@ import { ETLFile, ProcessingStage } from './types';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast"
 // +++ MODIFICATION START +++
+// , Landmark, UploadCloud, ListChecks
 import { Loader2 } from 'lucide-react'; // For loading state
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"; // For error state
 import { Terminal } from 'lucide-react'; // Icon for error alert
 import { Label } from '@/components/ui/label';
+import Joyride, { Step, CallBackProps, STATUS } from 'react-joyride'; // +++ Joyride Import +++
 import { useAuth } from '@/contexts/AuthContext';
 import { DatasetActions } from './components/DatasetActions';
 import { v4 as uuidv4 } from 'uuid';
@@ -44,6 +46,101 @@ export function UploadView() {
   const [loadingDatasets, setLoadingDatasets] = useState<boolean>(true);
   const [datasetError, setDatasetError] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState<boolean>(false);
+
+  // +++ Joyride State +++
+  const [runTour, setRunTour] = useState<boolean>(false);
+  const TOUR_VERSION = 'uploadViewTour_v1'; // For managing tour updates
+
+  useEffect(() => {
+    console.log('[Tour Effect] Running. loadingDatasets:', loadingDatasets);
+    const hasSeenTour = localStorage.getItem(TOUR_VERSION);
+    console.log('[Tour Effect] hasSeenTour:', hasSeenTour);
+
+    // Check if critical elements are in the DOM
+    const workspaceSelectionElement = document.getElementById('tour-step-workspace-selection');
+    const uploadAreaElement = document.getElementById('tour-step-upload-area');
+    // For file list, it only appears if files.length > 0, so we might not check it here initially,
+    // or the tour step for it should only be active when files are present.
+
+    console.log('[Tour Effect] workspaceSelectionElement exists:', !!workspaceSelectionElement);
+    console.log('[Tour Effect] uploadAreaElement exists:', !!uploadAreaElement);
+
+    if (!hasSeenTour && !loadingDatasets && workspaceSelectionElement && uploadAreaElement) {
+      console.log('[Tour Effect] All conditions met! Setting runTour to true in 500ms.');
+      const timer = setTimeout(() => {
+        console.log('[Tour Effect] Timeout fired. Calling setRunTour(true).');
+        setRunTour(true);
+      }, 500);
+      return () => {
+        console.log('[Tour Effect] Cleanup: Clearing timeout.');
+        clearTimeout(timer);
+      };
+    } else {
+      console.log('[Tour Effect] Conditions NOT met. Details:');
+      if (hasSeenTour) console.log('  - Tour already seen.');
+      if (loadingDatasets) console.log('  - Still loading datasets.');
+      if (!workspaceSelectionElement) console.log('  - Workspace selection element NOT FOUND in DOM.');
+      if (!uploadAreaElement) console.log('  - Upload area element NOT FOUND in DOM.');
+    }
+  }, [loadingDatasets, TOUR_VERSION]); // TOUR_VERSION is a constant, but good practice if it could change
+                                      // files.length could be added if file-list step is critical for initial start
+
+  const uploadTourSteps: Step[] = [
+    {
+      target: '#tour-step-workspace-selection',
+      content: (
+        <div>
+          <h4>Welcome to the Upload Page!</h4>
+          <p className="mt-2">
+            First, select an existing <strong>Workspace</strong> from this dropdown, or create a new one.
+            Files you upload will be processed into the selected Workspace.
+          </p>
+        </div>
+      ),
+      placement: 'bottom',
+      disableBeacon: true,
+      floaterProps: { disableAnimation: true },
+    },
+    {
+      target: '#tour-step-upload-area',
+      content: (
+        <div>
+          <h4>Upload Your Files</h4>
+          <p className="mt-2">
+            Drag and drop your Excel files (.xlsx, .xls) here, or click to browse your computer.
+          </p>
+        </div>
+      ),
+      placement: 'right',
+      floaterProps: { disableAnimation: true },
+    },
+    // {
+    //   target: '#tour-step-file-list-actions', // This ID will be on the FileList component's wrapper
+    //   content: (
+    //     <div>
+    //       <h4>Manage and Process</h4>
+    //       <p className="mt-2">
+    //         After adding files, they'll appear here. You can then click <strong>"Upload All"</strong> to start processing.
+    //       </p>
+    //     </div>
+    //   ),
+    //   placement: 'top',
+    //   floaterProps: { disableAnimation: true },
+    // },
+  ];
+
+  const handleJoyrideCallback = (data: CallBackProps) => {
+    const { status, type } = data;
+    const finishedStatuses: string[] = [STATUS.FINISHED, STATUS.SKIPPED];
+
+    if (finishedStatuses.includes(status) || type === 'tour:end') {
+      setRunTour(false);
+      localStorage.setItem(TOUR_VERSION, 'true');
+    }
+  };
+  // +++ End Joyride State +++
+
+
 // src/features/upload/UploadView.tsx
 const canCreateWorkspace = useMemo(() => {
   if (isRoleLoading || loadingDatasets) { // <<<< KEY ADDITION
@@ -303,12 +400,51 @@ const handleDatasetCreated = useCallback(() => {
   const filesWithError = files.filter(f => f.status === 'error').length;
 
   return (
+    <>
+       <Joyride
+        steps={uploadTourSteps}
+        run={runTour}
+        continuous
+        showProgress
+        showSkipButton
+        callback={handleJoyrideCallback}
+        styles={{
+          options: {
+            zIndex: 10000,
+            arrowColor: 'hsl(var(--card))',
+            backgroundColor: 'hsl(var(--card))',
+            primaryColor: 'hsl(var(--primary))',
+            textColor: 'hsl(var(--card-foreground))',
+          },
+          tooltipContainer: {
+            textAlign: "left",
+          },
+          buttonNext: {
+            backgroundColor: "hsl(var(--primary))",
+            color: "hsl(var(--primary-foreground))",
+            borderRadius: "var(--radius)",
+          },
+          buttonBack: {
+            marginRight: 10,
+            color: "hsl(var(--primary))",
+          },
+          buttonSkip: {
+            color: "hsl(var(--muted-foreground))",
+          }
+        }}
+        locale={{
+          last: 'End Tour',
+          skip: 'Skip Tour',
+          next: 'Next',
+          back: 'Back',
+        }}
+      />
     <div className="container mx-auto px-4 py-8 max-w-5xl space-y-8">
       <UploadHeader />
 
       {/* --- CORRECTED Dataset Selector Section --- */}
 
-      <div className="p-4 border rounded-lg bg-card shadow-sm space-y-3">
+      <div id="tour-step-workspace-selection" className="p-4 border rounded-lg bg-card shadow-sm space-y-3">
           <Label htmlFor="dataset-select" className="block text-sm font-medium text-muted-foreground">
           Workspace <span className="text-destructive">*</span>
           </Label>
@@ -383,12 +519,13 @@ const handleDatasetCreated = useCallback(() => {
                Select the Workspace where your uploaded files will be processed, or create a new one.
           </p>
       </div>
+      
       {/* --- END Dataset Selector Section --- */}
 
 
       {/* --- Upload Area and File List --- */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="md:col-span-2 space-y-6">
+        <div id="tour-step-upload-area" className="md:col-span-2 space-y-6">
           {/* Upload Area */}
           <UploadArea
             onFilesAdded={handleFilesAdded}
@@ -398,6 +535,7 @@ const handleDatasetCreated = useCallback(() => {
 
           {/* File List */}
           {files.length > 0 && (
+            <div id="tour-step-file-list-actions">
              <FileList
                 files={files}
                 onRemove={removeFile}
@@ -406,6 +544,7 @@ const handleDatasetCreated = useCallback(() => {
                 isProcessing={processingStage === 'uploading' || isUploading} // Simplified processing state check
                 isLoading={isUploading} // Pass loading state specifically for upload button
              />
+             </div>
           )}
         </div>
 
@@ -420,5 +559,6 @@ const handleDatasetCreated = useCallback(() => {
         </div>
       </div>
     </div>
+    </>
   );
 }

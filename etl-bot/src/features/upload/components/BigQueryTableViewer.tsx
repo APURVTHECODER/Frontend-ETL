@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef, useCallback, useMemo } from "react"; // Added useMemo
+import Joyride, { Step, CallBackProps, STATUS, EVENTS } from 'react-joyride'; // +++ Joyride Import +++
 import { Button, buttonVariants } from "@/components/ui/button";
 import Editor from '@monaco-editor/react'
 import { Input } from "@/components/ui/input";
@@ -26,8 +27,11 @@ import {
     LineChart as LineChartIcon, PieChart as PieChartIcon, Dot , Trash2 ,History,Copy,
     ListFilter, // Added Filter icon
     MessageSquare,X,
-    FileSpreadsheet, Clock ,Sparkles , LightbulbIcon , AlertCircle , Play ,Settings2,Check,ChevronsUpDown,CheckCheck
+    FileSpreadsheet, Clock ,Sparkles , LightbulbIcon , AlertCircle , Play ,Settings2,Check,ChevronsUpDown,CheckCheck,    // ... existing icons ...
+
 } from "lucide-react";
+    // Eye, // For tour initiation perhaps, or as a general icon
+    // ChevronDown // For dropdowns if needed
 // import { useAuth } from '@/contexts/AuthContext';
 import {
     Command,
@@ -129,6 +133,9 @@ type ActiveVisualizationConfig = {
     rationale?: string;
   };
 const BigQueryTableViewer: React.FC = () => {
+        // +++ Joyride State for BigQueryTableViewer Tour +++
+    const [runViewerTour, setRunViewerTour] = useState<boolean>(false);
+    const VIEWER_TOUR_VERSION = 'bigQueryTableViewerTour_v2'; // Increment if you change the tour significantly
     //   const { userProfile,  } = useAuth();
     //   const isAdmin = userProfile?.role === 'admin';
     const getErrorMessage = useCallback((error: any): string => { 
@@ -257,7 +264,156 @@ const BigQueryTableViewer: React.FC = () => {
     //     return Array.from(tables);
     // }, []);
 // Inside BigQueryTableViewer component
+    // Effect to start the tour on first visit & when data is loaded
+    useEffect(() => {
+        const hasSeenViewerTour = localStorage.getItem(VIEWER_TOUR_VERSION);
+        console.log(`[ViewerTour Effect] loadingDatasets: ${loadingDatasets}, hasSeenViewerTour: ${hasSeenViewerTour}, selectedDatasetId: ${selectedDatasetId}`);
 
+        // Tour starts if:
+        // 1. Not seen before.
+        // 2. Initial datasets have loaded (or failed to load, indicating page is somewhat ready).
+        // 3. A dataset is selected (many UI elements depend on this).
+        if (!hasSeenViewerTour && !loadingDatasets && selectedDatasetId) {
+            // Polling for critical elements to ensure they are in the DOM
+            let attempts = 0;
+            const maxAttempts = 15; // Try for ~7.5 seconds
+            const intervalId = setInterval(() => {
+                attempts++;
+                const workspaceSelectEl = document.getElementById('tour-viewer-workspace-select-trigger'); // Specific trigger
+                const tablesTabEl = document.getElementById('tour-sidebar-tab-tables');
+                const aiPromptEl = document.getElementById('tour-nl-prompt-input');
+
+                console.log(`[ViewerTour Polling Attempt ${attempts}] Workspace: ${!!workspaceSelectEl}, TablesTab: ${!!tablesTabEl}, AIPrompt: ${!!aiPromptEl}`);
+
+                if (workspaceSelectEl && tablesTabEl && aiPromptEl) {
+                    console.log('[ViewerTour Polling] Critical initial elements found! Starting tour.');
+                    // Short delay for styling/rendering completion
+                    // const timer = setTimeout(() => setRunViewerTour(true), 700);
+                    clearInterval(intervalId); // Stop polling
+                    // No need to return clearTimeout from here as interval is cleared
+                } else if (attempts >= maxAttempts) {
+                    console.warn('[ViewerTour Polling] Max attempts reached. Key elements for tour not found.');
+                    clearInterval(intervalId);
+                }
+            }, 500);
+            return () => {
+                console.log('[ViewerTour Effect Cleanup] Clearing polling interval if active.');
+                clearInterval(intervalId);
+            }
+        } else {
+             if (hasSeenViewerTour) console.log('[ViewerTour Effect] Tour already seen.');
+             if (loadingDatasets) console.log('[ViewerTour Effect] Datasets still loading.');
+             if (!selectedDatasetId) console.log('[ViewerTour Effect] No dataset selected yet.');
+        }
+    }, [loadingDatasets, selectedDatasetId, VIEWER_TOUR_VERSION]); // Dependencies
+
+    const viewerTourSteps: Step[] = [
+        {
+            target: '#tour-viewer-workspace-select-trigger', // Target the SelectTrigger
+            content: (
+                <div>
+                    <h4>Welcome to the Data Explorer!</h4>
+                    <p>This is where you interact with your data. First, ensure you have the correct <strong>Workspace (Dataset)</strong> selected here.</p>
+                </div>
+            ),
+            placement: 'bottom-start',
+            disableBeacon: true,
+        },
+        {
+            target: '#tour-sidebar-tab-tables', // ID on the Tables TabTrigger
+            content: <p>Explore your available <strong>Tables</strong> in the selected workspace here. Click a table to see its preview.</p>,
+            placement: 'right',
+        },
+        {
+            target: '#tour-sidebar-tab-history', // ID on the History TabTrigger
+            content: <p>Revisit your <strong>Past Executed Queries</strong> in the History tab. Click one to load it into the editor.</p>,
+            placement: 'right',
+            // action to switch tab if needed by Joyride (advanced)
+            // before: () => setCurrentSidebarTab('history'),
+        },
+        {
+            target: '#tour-nl-prompt-input', // ID on the Natural Language Prompt Input
+            content: <p>Want the AI to write SQL for you? Type your data question here in plain language (e.g., "show total sales per product").</p>,
+            placement: 'bottom',
+        },
+        {
+            target: '#tour-generate-sql-button', // ID on the "Generate SQL" button
+            content: <p>Then, click <strong>Generate SQL</strong>. The AI will create a query based on your prompt and selected tables (if any).</p>,
+            placement: 'bottom',
+        },
+        {
+            target: '#tour-sql-editor-wrapper', // ID on the div wrapping the Monaco Editor
+            content: <p>The generated SQL (or your manually written query) will appear in this <strong>SQL Editor</strong>. You can modify it as needed.</p>,
+            placement: 'bottom',
+        },
+        {
+            target: '#tour-run-query-button', // ID on the "Run Query" button
+            content: <p>Once you're ready, click <strong>Run Query</strong> to execute the SQL against your BigQuery workspace.</p>,
+            placement: 'bottom',
+        },
+        {
+            target: '#tour-output-tabs-list', // ID for the TabsList in output pane
+            content: <p>After running a query, your results will appear below. You can switch between <strong>Data Preview</strong> (for selected tables), <strong>Query Results</strong>, <strong>Visualizations</strong>, and <strong>AI Summaries</strong> using these tabs.</p>,
+            placement: 'top',
+        },
+        {
+            target: '#tour-output-tab-results', // ID on the "Results" TabTrigger
+            content: <p>The <strong>Results</strong> tab shows the data returned by your query. You can filter and sort this data.</p>,
+            placement: 'top',
+            // before: () => setCurrentOutputTab('results'), // If tour needs to force tab switch
+        },
+        {
+            target: '#tour-output-tab-visualize', // ID on the "Visualize" TabTrigger
+            content: <p>If your query results are suitable, the <strong>Visualize</strong> tab will offer chart suggestions. Click one to see a chart!</p>,
+            placement: 'top',
+            // before: () => jobResults && suggestedCharts.length > 0 && setCurrentOutputTab('visualize'),
+        },
+        {
+            target: '#tour-excel-download-button-results', // ID on the Excel download button in Results tab
+            content: <p>You can download your query results (and an active chart if on the Visualize tab) as an <strong>Excel Report</strong> here.</p>,
+            placement: 'top-start',
+        },
+        {
+            target: '#tour-chatbot-toggle', // Assuming you add an ID to the chatbot toggle button
+            content: <p>Need more help or have quick questions? Open our <strong>AI Chat Assistant</strong> anytime!</p>,
+            placement: 'top-end',
+        }
+    ];
+
+
+        const handleViewerJoyrideCallback = (data: CallBackProps) => {
+        const { status, type, action, index, step } = data;
+        const finishedStatuses: string[] = [STATUS.FINISHED, STATUS.SKIPPED];
+
+        console.log('[ViewerTour Callback]', { status, type, action, index, step: step?.target });
+
+        if (type === EVENTS.TARGET_NOT_FOUND) {
+            console.error(`[ViewerTour Error] Target not found for step ${index}: ${step.target}`);
+            // Decide if to skip or stop. For now, let's try to continue if possible.
+            // You might want to setRunViewerTour(false) to stop.
+        }
+
+        if (action === 'close' || finishedStatuses.includes(status) || type === 'tour:end') {
+            console.log('[ViewerTour Callback] Tour ending or closing.');
+            setRunViewerTour(false);
+            if (status === STATUS.FINISHED || status === STATUS.SKIPPED) {
+                console.log('[ViewerTour Callback] Marking viewer tour as seen.');
+                localStorage.setItem(VIEWER_TOUR_VERSION, 'true');
+            }
+        }
+        // Logic to automatically switch tabs if a step requires it
+        // This can get complex. Simpler is to guide the user to click.
+        // Example for advanced handling:
+        // if (type === EVENTS.STEP_BEFORE) {
+        //   if (step.target === '#tour-sidebar-tab-history') {
+        //     setCurrentSidebarTab('history');
+        //   } else if (step.target === '#tour-output-tab-results' && currentOutputTab !== 'results') {
+        //     setCurrentOutputTab('results');
+        //   } else if (step.target === '#tour-output-tab-visualize' && currentOutputTab !== 'visualize' && jobResults && suggestedCharts.length > 0) {
+        //      setCurrentOutputTab('visualize');
+        //   }
+        // }
+    };
 // ... other functions like fetchTables, submitSqlJob etc ...
 // +++ MODIFICATION START: Derive available columns for SEMI_AUTO mode +++
 // --- START: Added useMemo Hook ---
@@ -1463,7 +1619,7 @@ useEffect(() => {
                         onValueChange={handleDatasetChange}
                         disabled={loadingTables || loadingSchema || isRunningJob || availableDatasets.length === 0}
                     >
-                        <SelectTrigger id="dataset-select" className="w-full h-8 text-xs">
+                        <SelectTrigger id="tour-viewer-workspace-select-trigger" className="w-full h-8 text-xs">
                             <SelectValue placeholder="Select a workspace..." />
                         </SelectTrigger>
                         <SelectContent>
@@ -1490,11 +1646,11 @@ useEffect(() => {
                     {selectedDatasetId.toLocaleUpperCase()}
                 </p>
                 <Tabs value={currentSidebarTab} onValueChange={setCurrentSidebarTab} className="flex-grow flex flex-col overflow-hidden">
-                    <TabsList className="grid grid-cols-4 mb-3 h-8 bg-muted flex-shrink-0">
+                    <TabsList id="tour-sidebar-tabs-list" className="grid grid-cols-4 mb-3 h-8 bg-muted flex-shrink-0">
                          {/* Tabs use default theme styles */}
-                        <TabsTrigger value="tables" className="text-xs h-7"><Database className="mr-1 h-3 w-3"/>Tables</TabsTrigger>
-                        <TabsTrigger value="favorites" className="text-xs h-7"><Bookmark className="mr-1 h-3 w-3"/>Favorites</TabsTrigger>
-                        <TabsTrigger value="history" className="text-xs h-7"><History className="mr-1 h-3 w-3"/>History</TabsTrigger>
+                        <TabsTrigger  id="tour-sidebar-tab-tables" value="tables" className="text-xs h-7"><Database className="mr-1 h-3 w-3"/>Tables</TabsTrigger>
+                        <TabsTrigger  value="favorites" className="text-xs h-7"><Bookmark className="mr-1 h-3 w-3"/>Favorites</TabsTrigger>
+                        <TabsTrigger  id="tour-sidebar-tab-history" value="history" className="text-xs h-7"><History className="mr-1 h-3 w-3"/>History</TabsTrigger>
                         <TabsTrigger value="schema" className="text-xs h-7"><ListTree className="mr-1 h-3 w-3"/>Schema</TabsTrigger>
                     </TabsList>
                     <div className="flex-grow overflow-hidden">
@@ -2157,6 +2313,7 @@ const renderEditorPane = () => {
                         </Select>
                         <div className="relative flex-grow">
                             <Input
+                             id="tour-nl-prompt-input"
                                 ref={promptInputRef}
                                 placeholder={selectedTableId ? "Describe query in plain language..." : "Select table for AI assistance..."}
                                 value={nlPrompt}
@@ -2174,6 +2331,7 @@ const renderEditorPane = () => {
                             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                         </div>
                         <Button 
+                        id="tour-generate-sql-button"
                             onClick={handleGenerateSql} 
                             disabled={!nlPrompt.trim() || generatingSql || !selectedTableId} 
                             size="sm" 
@@ -2251,7 +2409,7 @@ const renderEditorPane = () => {
             )}
 
             {/* Monaco Editor Area */}
-            <div className="flex-grow relative bg-background">
+            <div id="tour-sql-editor-wrapper" className="flex-grow relative bg-background">
                 <Editor
                     language="sql"
                     value={sql}
@@ -2487,10 +2645,11 @@ const renderEditorPane = () => {
                  )}
 
                 <Tabs value={currentOutputTab} onValueChange={setCurrentOutputTab} className="flex-grow flex flex-col overflow-hidden">
-                    <TabsList className="mx-3 mt-2 mb-1 h-8 justify-start bg-muted p-0.5 rounded-md flex-shrink-0">
-                        <TabsTrigger value="data" className="text-xs h-7 px-3 data-[state=active]:bg-background data-[state=active]:shadow-sm rounded-sm"><Table2 className="mr-1.5 h-3.5 w-3.5"/>Preview</TabsTrigger>
-                        <TabsTrigger value="results" className="text-xs h-7 px-3 data-[state=active]:bg-background data-[state=active]:shadow-sm rounded-sm" disabled={!jobId && !jobResults}><ListTree className="mr-1.5 h-3.5 w-3.5"/>Results</TabsTrigger>
+                    <TabsList id="tour-output-tabs-list" className="mx-3 mt-2 mb-1 h-8 justify-start bg-muted p-0.5 rounded-md flex-shrink-0">
+                        <TabsTrigger id="tour-output-tab-data" value="data" className="text-xs h-7 px-3 data-[state=active]:bg-background data-[state=active]:shadow-sm rounded-sm"><Table2 className="mr-1.5 h-3.5 w-3.5"/>Preview</TabsTrigger>
+                        <TabsTrigger id="tour-output-tab-results" value="results" className="text-xs h-7 px-3 data-[state=active]:bg-background data-[state=active]:shadow-sm rounded-sm" disabled={!jobId && !jobResults}><ListTree className="mr-1.5 h-3.5 w-3.5"/>Results</TabsTrigger>
                         <TabsTrigger
+                        id="tour-output-tab-visualize"
                              value="visualize"
                              className="text-xs h-7 px-3 data-[state=active]:bg-background data-[state=active]:shadow-sm rounded-sm"
                              disabled={!hasResultsToShow || !canVisualize || filteredData.length === 0} // Disable if no results or no suggestions/active viz or filtered data is empty
@@ -2534,7 +2693,7 @@ const renderEditorPane = () => {
     const renderResultsContent = () => {
         // --- Initial checks (Loading, Error, No Original Results) ---
         if (isRunningJob && jobId) return ( <div className="flex justify-center items-center h-full p-4"><div className="text-center"><Loader2 className="h-8 w-8 animate-spin mx-auto mb-3 text-primary"/><p className="text-lg font-medium mb-1 text-foreground">Running Query...</p><p className="text-sm text-muted-foreground">Job ID: {jobId}</p></div></div> );
-        if (jobError) return ( <Alert variant="destructive" className="m-4"><Terminal className="h-4 w-4"/><AlertTitle>Query Error</AlertTitle><AlertDescription><p>{jobError}</p><Button onClick={submitSqlJob} variant="outline" size="sm" className="mt-3 text-xs h-7"><RefreshCw className="mr-1.5 h-3 w-3"/>Try Again</Button></AlertDescription></Alert> );
+        if (jobError) return ( <Alert variant="destructive" className="m-4"><Terminal className="h-4 w-4"/><AlertTitle>Query Error</AlertTitle><AlertDescription><p>{jobError}</p><Button  id="tour-run-query-button"  onClick={submitSqlJob} variant="outline" size="sm" className="mt-3 text-xs h-7"><RefreshCw className="mr-1.5 h-3 w-3"/>Try Again</Button></AlertDescription></Alert> );
         if (loadingResults && !jobResults?.rows) return ( <div className="flex justify-center items-center h-full p-4"><div className="text-center"><Loader2 className="h-8 w-8 animate-spin mx-auto mb-3 text-primary"/><p className="text-sm text-muted-foreground">Loading results...</p></div></div> ); // Show loading only if NO results yet
         if (resultsError) return ( <Alert variant="destructive" className="m-4"><Terminal className="h-4 w-4"/><AlertTitle>Results Error</AlertTitle><AlertDescription>{resultsError}</AlertDescription></Alert> );
         if (!jobResults) return ( <div className="flex items-center justify-center h-full text-muted-foreground p-6"><div className="text-center"><ListTree className="h-12 w-12 mx-auto mb-4 opacity-20"/><h3 className="text-lg font-medium mb-2 text-foreground">No Query Results</h3><p className="text-sm">Run a query using the editor above.</p></div></div> );
@@ -2653,6 +2812,7 @@ const renderEditorPane = () => {
                             <Tooltip>
                                 <TooltipTrigger asChild>
                                      <Button
+                                         id="tour-excel-download-button-results"
                                          variant="outline"
                                          size="sm"
                                          onClick={handleExcelDownload}
@@ -2925,9 +3085,33 @@ const renderEditorPane = () => {
     // --- Main Component Return ---
     return (
         <TooltipProvider>
+                        <Joyride
+                steps={viewerTourSteps}
+                run={runViewerTour}
+                continuous
+                scrollToFirstStep
+                showProgress
+                showSkipButton
+                callback={handleViewerJoyrideCallback}
+                // debug // Useful during development
+                styles={{
+                    options: {
+                        zIndex: 10000,
+                        arrowColor: 'hsl(var(--popover))',
+                        backgroundColor: 'hsl(var(--popover))',
+                        primaryColor: 'hsl(var(--primary))',
+                        textColor: 'hsl(var(--popover-foreground))',
+                    },
+                    tooltipContainer: { textAlign: "left", },
+                    buttonNext: { backgroundColor: "hsl(var(--primary))", color: "hsl(var(--primary-foreground))", borderRadius: "var(--radius)" },
+                    buttonBack: { marginRight: 10, color: "hsl(var(--primary))" },
+                    buttonSkip: { color: "hsl(var(--muted-foreground))" }
+                }}
+                locale={{ last: 'Finish Tour', skip: 'Skip', next: 'Next', back: 'Back' }}
+            />
             <div className="flex h-full bg-background text-foreground overflow-hidden text-sm">
                 {/* Sidebar uses card background */}
-                <div className={`border-r border-border bg-card flex flex-col flex-shrink-0 transition-all duration-300 ease-in-out ${ sidebarCollapsed ? 'w-12' : 'w-64 md:w-72' }`} >
+                <div id="tour-sidebar-wrapper"  className={`border-r border-border bg-card flex flex-col flex-shrink-0 transition-all duration-300 ease-in-out ${ sidebarCollapsed ? 'w-12' : 'w-64 md:w-72' }`} >
                     {/* Sidebar Top Section (Collapse Button) */}
                     <div className={`p-2 border-b border-border flex ${sidebarCollapsed?'justify-center':'justify-end'} flex-shrink-0`}>
                          <Tooltip> <TooltipTrigger asChild><Button variant="ghost" size="icon" className="h-7 w-7" onClick={()=>setSidebarCollapsed(!sidebarCollapsed)}>{sidebarCollapsed?<ChevronRight className="h-4 w-4"/>:<ChevronLeft className="h-4 w-4"/>}</Button></TooltipTrigger><TooltipContent side="right">{sidebarCollapsed?'Expand':'Collapse'}</TooltipContent></Tooltip>
@@ -2937,7 +3121,9 @@ const renderEditorPane = () => {
                         {sidebarCollapsed ? (
                              <div className="flex flex-col items-center pt-3 gap-3">
                                 {/* Collapsed Icons... */}
-                                <Tooltip><TooltipTrigger asChild><Button variant={currentSidebarTab==='tables'?'secondary':'ghost'} size="icon" className="h-7 w-7" onClick={()=>{setCurrentSidebarTab('tables'); setSidebarCollapsed(false);}}><Database className="h-4 w-4"/></Button></TooltipTrigger><TooltipContent side="right">Tables</TooltipContent></Tooltip>
+                                <Tooltip><TooltipTrigger asChild><Button
+                                id="tour-chatbot-toggle"
+                                variant={currentSidebarTab==='tables'?'secondary':'ghost'} size="icon" className="h-7 w-7" onClick={()=>{setCurrentSidebarTab('tables'); setSidebarCollapsed(false);}}><Database className="h-4 w-4"/></Button></TooltipTrigger><TooltipContent side="right">Tables</TooltipContent></Tooltip>
                                 <Tooltip><TooltipTrigger asChild><Button variant={currentSidebarTab==='favorites'?'secondary':'ghost'} size="icon" className="h-7 w-7" onClick={()=>{setCurrentSidebarTab('favorites'); setSidebarCollapsed(false);}}><Bookmark className="h-4 w-4"/></Button></TooltipTrigger><TooltipContent side="right">Favorites</TooltipContent></Tooltip>
                                 <Tooltip><TooltipTrigger asChild><Button variant={currentSidebarTab==='history'?'secondary':'ghost'} size="icon" className="h-7 w-7" onClick={()=>{setCurrentSidebarTab('history'); setSidebarCollapsed(false);}}><History className="h-4 w-4"/></Button></TooltipTrigger><TooltipContent side="right">History</TooltipContent></Tooltip>
                                 <Tooltip><TooltipTrigger asChild><Button variant={currentSidebarTab==='schema'?'secondary':'ghost'} size="icon" className="h-7 w-7" onClick={()=>{setCurrentSidebarTab('schema'); setSidebarCollapsed(false);}}><ListTree className="h-4 w-4"/></Button></TooltipTrigger><TooltipContent side="right">Schema</TooltipContent></Tooltip>
