@@ -2903,7 +2903,24 @@ const renderEditorPane = () => {
 
     // --- MODIFIED: renderChartVisualization (Includes FilterControls, uses filteredData) ---
     const renderChartVisualization = () => {
+        const tooltipContentStyle = { // Renamed for clarity to avoid clash with itemStyle/labelStyle
+            background: 'hsl(var(--popover))',
+            color: 'hsl(var(--popover-foreground))', // This should ideally set the text color
+            border: '1px solid hsl(var(--border))',
+            borderRadius: 'var(--radius)',
+            fontSize: '12px',
+            padding: '8px 12px', // Added some padding for better looks
+        };
 
+        // Styles for the text items within the tooltip
+        const tooltipItemStyle = {
+            color: 'hsl(var(--popover-foreground))', // Explicitly set text color for items
+        };
+        const tooltipLabelStyle = {
+            color: 'hsl(var(--popover-foreground))', // Explicitly set text color for the label (if any)
+            fontWeight: 'bold', // Optional: make label bold
+            marginBottom: '4px', // Optional: space below label
+        };
          // Check if we should even be on this tab
          if (!activeVisualization) {
              return (
@@ -2970,7 +2987,9 @@ const renderEditorPane = () => {
                                 <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))"/>
                                 <XAxis dataKey={x_axis_column} angle={-45} textAnchor="end" height={60} interval={0} tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} stroke="hsl(var(--muted-foreground))"/>
                                 <YAxis tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} stroke="hsl(var(--muted-foreground))"/>
-                                <RechartsTooltip cursor={{ fill: 'hsla(var(--muted), 0.5)' }} contentStyle={{ background: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', borderRadius: 'var(--radius)', fontSize: '12px', color: 'hsl(var(--foreground))' }}/>
+                                <RechartsTooltip cursor={{ fill: 'hsla(var(--muted), 0.5)' }}                                     contentStyle={tooltipContentStyle}
+                                    itemStyle={tooltipItemStyle} 
+                                    labelStyle={tooltipLabelStyle} />
                                 <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '10px' }} />
                                 {validYCols.map((yCol, index) => ( <Bar key={yCol} dataKey={yCol} fill={COLORS[index % COLORS.length]} /> ))}
                              </BarChart>
@@ -2986,7 +3005,9 @@ const renderEditorPane = () => {
                                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))"/>
                                  <XAxis dataKey={x_axis_column} type="number" domain={['dataMin', 'dataMax']} scale="time" tickFormatter={(unixTime) => new Date(unixTime).toLocaleDateString()} tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} stroke="hsl(var(--muted-foreground))"/>
                                  <YAxis tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} stroke="hsl(var(--muted-foreground))"/>
-                                <RechartsTooltip labelFormatter={(unixTime) => new Date(unixTime).toLocaleString()} contentStyle={{ background: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', borderRadius: 'var(--radius)', fontSize: '12px', color: 'hsl(var(--foreground))' }}/>
+                                <RechartsTooltip labelFormatter={(unixTime) => new Date(unixTime).toLocaleString()}                                     contentStyle={tooltipContentStyle}
+                                    itemStyle={tooltipItemStyle} 
+                                    labelStyle={tooltipLabelStyle} />
                                  <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '10px' }} />
                                  {validYCols.map((yCol, index) => ( <Line key={yCol} type="monotone" dataKey={yCol} stroke={COLORS[index % COLORS.length]} strokeWidth={2} dot={false} activeDot={{ r: 6 }}/> ))}
                              </LineChart>
@@ -3004,7 +3025,9 @@ const renderEditorPane = () => {
                                  <Pie data={formattedDataPie} cx="50%" cy="50%" labelLine={false} outerRadius="80%" fill="#8884d8" dataKey="value" nameKey="name" label={{ fontSize: 10, fill: 'hsl(var(--foreground))' }}>
                                      {formattedDataPie.map((_, index) => ( <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} /> ))}
                                  </Pie>
-                                 <RechartsTooltip contentStyle={{ background: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', borderRadius: 'var(--radius)', fontSize: '12px', color: 'hsl(var(--foreground))' }}/>
+                                 <RechartsTooltip                                     contentStyle={tooltipContentStyle}
+                                    itemStyle={tooltipItemStyle} 
+                                    labelStyle={tooltipLabelStyle} />
                                  <Legend wrapperStyle={{ fontSize: '11px' }}/>
                              </PieChart>
                          </ResponsiveContainer>
@@ -3021,7 +3044,9 @@ const renderEditorPane = () => {
                                 <CartesianGrid stroke="hsl(var(--border))"/>
                                  <XAxis type="number" dataKey="x" name={x_axis_column} tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} stroke="hsl(var(--muted-foreground))"/>
                                  <YAxis type="number" dataKey="y" name={yAxisName} tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} stroke="hsl(var(--muted-foreground))"/>
-                                 <RechartsTooltip cursor={{ strokeDasharray: '3 3' }} contentStyle={{ background: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', borderRadius: 'var(--radius)', fontSize: '12px', color: 'hsl(var(--foreground))' }} formatter={(value: any, name: string, props: any) => { const pointLabel = props.payload?.label; const axisName = name === 'x' ? x_axis_column : yAxisName; return [`${axisName}: ${value}`, pointLabel ? `Label: ${pointLabel}`: undefined]; }}/>
+                                 <RechartsTooltip cursor={{ strokeDasharray: '3 3' }}                                     contentStyle={tooltipContentStyle}
+                                    itemStyle={tooltipItemStyle} 
+                                    labelStyle={tooltipLabelStyle} />
                                 <Scatter name={yAxisName} data={formattedDataScatter} fill={COLORS[0]}/>
                             </ScatterChart>
                         </ResponsiveContainer>
