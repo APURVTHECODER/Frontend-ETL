@@ -103,7 +103,7 @@ function AppContent() {
     const APP_TOUR_VERSION = 'appLayoutTour_v1'; // Unique key for this tour
     useEffect(() => {
         const hasSeenAppTour = localStorage.getItem(APP_TOUR_VERSION);
-        console.log('[AppTour Effect] loading:', loading, 'user:', !!user, 'hasSeenAppTour:', hasSeenAppTour, 'path:', location.pathname);
+        // console.log('[AppTour Effect] loading:', loading, 'user:', !!user, 'hasSeenAppTour:', hasSeenAppTour, 'path:', location.pathname);
 
         if (!loading && user && !hasSeenAppTour) {
             // Check if the *first* critical target element exists
@@ -111,18 +111,17 @@ function AppContent() {
             // The theme toggle button might be anywhere, so its existence check can be less strict for *starting* the tour,
             // but Joyride will still need it when its step comes up.
 
-            console.log('[AppTour Effect] firstTargetElement (switch button) exists:', !!firstTargetElement);
+            // console.log('[AppTour Effect] firstTargetElement (switch button) exists:', !!firstTargetElement);
             
             // Only start the tour if on a relevant page for the *first* step
             if (firstTargetElement && (location.pathname === EXPLORER_PATH || location.pathname === UPLOAD_PATH || location.pathname === "/")) {
                 const timer = setTimeout(() => {
-                    console.log('[AppTour Effect] Setting runAppTour to true.');
+                    // console.log('[AppTour Effect] Setting runAppTour to true.');
                     setRunAppTour(true);
                 }, 700);
                 return () => clearTimeout(timer);
             } else {
                  if (!firstTargetElement) console.warn('[AppTour Effect] First target (switch button) not found in DOM yet.');
-                 else console.log('[AppTour Effect] Not on a page where switch button tour (first step) is relevant.');
             }
         } else {
             // ... (existing console logs for why tour isn't starting) ...
@@ -166,13 +165,13 @@ function AppContent() {
     const handleAppJoyrideCallback = (data: CallBackProps) => {
         const { status, type, action, step, index } = data;
         const finishedStatuses: string[] = [STATUS.FINISHED, STATUS.SKIPPED];
-        console.log('[AppTour Callback]', { status, type, action, step, index });
+        // console.log('[AppTour Callback]', { status, type, action, step, index });
 
         if (action === 'close' || finishedStatuses.includes(status) || type === 'tour:end') {
-            console.log('[AppTour Callback] App tour ending or closing.');
+            // console.log('[AppTour Callback] App tour ending or closing.');
             setRunAppTour(false);
             if (status === STATUS.FINISHED || status === STATUS.SKIPPED) {
-                console.log('[AppTour Callback] Marking app tour as seen.');
+                // console.log('[AppTour Callback] Marking app tour as seen.');
                 localStorage.setItem(APP_TOUR_VERSION, 'true');
             }
         } else if (type === 'error:target_not_found') {

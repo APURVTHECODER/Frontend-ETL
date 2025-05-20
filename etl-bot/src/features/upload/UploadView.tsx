@@ -52,9 +52,9 @@ export function UploadView() {
   const TOUR_VERSION = 'uploadViewTour_v1'; // For managing tour updates
 
   useEffect(() => {
-    console.log('[Tour Effect] Running. loadingDatasets:', loadingDatasets);
+    // console.log('[Tour Effect] Running. loadingDatasets:', loadingDatasets);
     const hasSeenTour = localStorage.getItem(TOUR_VERSION);
-    console.log('[Tour Effect] hasSeenTour:', hasSeenTour);
+    // console.log('[Tour Effect] hasSeenTour:', hasSeenTour);
 
     // Check if critical elements are in the DOM
     const workspaceSelectionElement = document.getElementById('tour-step-workspace-selection');
@@ -62,26 +62,20 @@ export function UploadView() {
     // For file list, it only appears if files.length > 0, so we might not check it here initially,
     // or the tour step for it should only be active when files are present.
 
-    console.log('[Tour Effect] workspaceSelectionElement exists:', !!workspaceSelectionElement);
-    console.log('[Tour Effect] uploadAreaElement exists:', !!uploadAreaElement);
+    // console.log('[Tour Effect] workspaceSelectionElement exists:', !!workspaceSelectionElement);
+    // console.log('[Tour Effect] uploadAreaElement exists:', !!uploadAreaElement);
 
     if (!hasSeenTour && !loadingDatasets && workspaceSelectionElement && uploadAreaElement) {
-      console.log('[Tour Effect] All conditions met! Setting runTour to true in 500ms.');
+      // console.log('[Tour Effect] All conditions met! Setting runTour to true in 500ms.');
       const timer = setTimeout(() => {
-        console.log('[Tour Effect] Timeout fired. Calling setRunTour(true).');
+        // console.log('[Tour Effect] Timeout fired. Calling setRunTour(true).');
         setRunTour(true);
       }, 500);
       return () => {
-        console.log('[Tour Effect] Cleanup: Clearing timeout.');
+        // console.log('[Tour Effect] Cleanup: Clearing timeout.');
         clearTimeout(timer);
       };
-    } else {
-      console.log('[Tour Effect] Conditions NOT met. Details:');
-      if (hasSeenTour) console.log('  - Tour already seen.');
-      if (loadingDatasets) console.log('  - Still loading workspace.');
-      if (!workspaceSelectionElement) console.log('  - Workspace selection element NOT FOUND in DOM.');
-      if (!uploadAreaElement) console.log('  - Upload area element NOT FOUND in DOM.');
-    }
+    } 
   }, [loadingDatasets, TOUR_VERSION]); // TOUR_VERSION is a constant, but good practice if it could change
                                       // files.length could be added if file-list step is critical for initial start
 
@@ -171,7 +165,7 @@ const canCreateWorkspace = useMemo(() => {
       } else {
         // No datasets returned for this user
         setSelectedDatasetId("");
-        console.log("[UploadView] No workspace returned for user.");
+        // console.log("[UploadView] No workspace returned for user.");
         // --- CRITICAL CHANGE: DO NOT set a generic error if the user might be able to create one ---
         // If it's not an admin and they can create, this is fine.
         // An error will only be shown if a fetch *actually* failed (caught in catch block)

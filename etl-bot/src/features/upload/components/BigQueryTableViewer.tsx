@@ -264,7 +264,7 @@ const BigQueryTableViewer: React.FC = () => {
     // Effect to start the tour on first visit & when data is loaded
     useEffect(() => {
         const hasSeenViewerTour = localStorage.getItem(VIEWER_TOUR_VERSION);
-        console.log(`[ViewerTour Effect] loading Workspace: ${loadingDatasets}, hasSeenViewerTour: ${hasSeenViewerTour}, selectedWorkspaceId: ${selectedDatasetId}`);
+        // console.log(`[ViewerTour Effect] loading Workspace: ${loadingDatasets}, hasSeenViewerTour: ${hasSeenViewerTour}, selectedWorkspaceId: ${selectedDatasetId}`);
 
         // Tour starts if:
         // 1. Not seen before.
@@ -280,10 +280,10 @@ const BigQueryTableViewer: React.FC = () => {
                 const tablesTabEl = document.getElementById('tour-sidebar-tab-tables');
                 const aiPromptEl = document.getElementById('tour-nl-prompt-input');
 
-                console.log(`[ViewerTour Polling Attempt ${attempts}] Workspace: ${!!workspaceSelectEl}, TablesTab: ${!!tablesTabEl}, AIPrompt: ${!!aiPromptEl}`);
+                // console.log(`[ViewerTour Polling Attempt ${attempts}] Workspace: ${!!workspaceSelectEl}, TablesTab: ${!!tablesTabEl}, AIPrompt: ${!!aiPromptEl}`);
 
                 if (workspaceSelectEl && tablesTabEl && aiPromptEl) {
-                    console.log('[ViewerTour Polling] Critical initial elements found! Starting tour.');
+                    // console.log('[ViewerTour Polling] Critical initial elements found! Starting tour.');
                     // Short delay for styling/rendering completion
                     setTimeout(() => setRunViewerTour(true), 700);
                     clearInterval(intervalId); // Stop polling
@@ -294,13 +294,9 @@ const BigQueryTableViewer: React.FC = () => {
                 }
             }, 500);
             return () => {
-                console.log('[ViewerTour Effect Cleanup] Clearing polling interval if active.');
+                // console.log('[ViewerTour Effect Cleanup] Clearing polling interval if active.');
                 clearInterval(intervalId);
             }
-        } else {
-             if (hasSeenViewerTour) console.log('[ViewerTour Effect] Tour already seen.');
-             if (loadingDatasets) console.log('[ViewerTour Effect] Workspace still loading.');
-             if (!selectedDatasetId) console.log('[ViewerTour Effect] No workspace selected yet.');
         }
     }, [loadingDatasets, selectedDatasetId, VIEWER_TOUR_VERSION]); // Dependencies
 
@@ -406,10 +402,10 @@ const BigQueryTableViewer: React.FC = () => {
 
     const handleViewerJoyrideCallback = (data: CallBackProps) => {
         // ... (existing callback logic - ensure it handles TARGET_NOT_FOUND gracefully)
-        const { status, type, action, index, step, lifecycle } = data;
+        const { status, type, action, index, step } = data;
         const finishedStatuses: string[] = [STATUS.FINISHED, STATUS.SKIPPED];
 
-        console.log('[ViewerTour Callback]', { status, type, action, index, lifecycle, target: step?.target });
+        // console.log('[ViewerTour Callback]', { status, type, action, index, lifecycle, target: step?.target });
 
         if (type === EVENTS.TARGET_NOT_FOUND) {
             console.error(`[ViewerTour Error] Target not found for step ${index}: ${step.target}`);
@@ -423,15 +419,15 @@ const BigQueryTableViewer: React.FC = () => {
             // This requires more complex logic, perhaps by setting runViewerTour to false
             // and then re-enabling it once jobResults appear.
             // For a simpler tour, we assume the user runs a query and elements become visible.
-            console.log("After 'Run Query' step. User should now see results tabs.");
+            // console.log("After 'Run Query' step. User should now see results tabs.");
         }
 
 
         if (action === 'close' || finishedStatuses.includes(status) || type === 'tour:end') {
-            console.log('[ViewerTour Callback] Tour ending or closing.');
+            // console.log('[ViewerTour Callback] Tour ending or closing.');
             setRunViewerTour(false);
             if (status === STATUS.FINISHED || status === STATUS.SKIPPED) {
-                console.log('[ViewerTour Callback] Marking viewer tour as seen.');
+                // console.log('[ViewerTour Callback] Marking viewer tour as seen.');
                 localStorage.setItem(VIEWER_TOUR_VERSION, 'true');
             }
         }
