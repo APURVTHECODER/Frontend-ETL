@@ -304,91 +304,128 @@ const BigQueryTableViewer: React.FC = () => {
         }
     }, [loadingDatasets, selectedDatasetId, VIEWER_TOUR_VERSION]); // Dependencies
 
-    const viewerTourSteps: Step[] = [
-        {
-            target: '#tour-viewer-workspace-select-trigger', // Target the SelectTrigger
-            content: (
-                <div>
-                    <h4>Welcome to the Data Explorer!</h4>
-                    <p>This is where you interact with your data. First, ensure you have the correct <strong>Workspace (Dataset)</strong> selected here.</p>
-                </div>
-            ),
-            placement: 'bottom-start',
-            disableBeacon: true,
-        },
-        {
-            target: '#tour-sidebar-tab-tables', // ID on the Tables TabTrigger
-            content: <p>Explore your available <strong>Tables</strong> in the selected workspace here. Click a table to see its preview.</p>,
-            placement: 'right',
-        },
-        {
-            target: '#tour-sidebar-tab-history', // ID on the History TabTrigger
-            content: <p>Revisit your <strong>Past Executed Queries</strong> in the History tab. Click one to load it into the editor.</p>,
-            placement: 'right',
-            // action to switch tab if needed by Joyride (advanced)
-            // before: () => setCurrentSidebarTab('history'),
-        },
-        {
-            target: '#tour-nl-prompt-input', // ID on the Natural Language Prompt Input
-            content: <p>Want the AI to write SQL for you? Type your data question here in plain language (e.g., "show total sales per product").</p>,
-            placement: 'bottom',
-        },
-        {
-            target: '#tour-generate-sql-button', // ID on the "Generate SQL" button
-            content: <p>Then, click <strong>Generate SQL</strong>. The AI will create a query based on your prompt and selected tables (if any).</p>,
-            placement: 'bottom',
-        },
-        {
-            target: '#tour-sql-editor-wrapper', // ID on the div wrapping the Monaco Editor
-            content: <p>The generated SQL (or your manually written query) will appear in this <strong>SQL Editor</strong>. You can modify it as needed.</p>,
-            placement: 'bottom',
-        },
-        {
-            target: '#tour-run-query-button', // ID on the "Run Query" button
-            content: <p>Once you're ready, click <strong>Run Query</strong> to execute the SQL against your BigQuery workspace.</p>,
-            placement: 'bottom',
-        },
-        {
-            target: '#tour-output-tabs-list', // ID for the TabsList in output pane
-            content: <p>After running a query, your results will appear below. You can switch between <strong>Data Preview</strong> (for selected tables), <strong>Query Results</strong>, <strong>Visualizations</strong>, and <strong>AI Summaries</strong> using these tabs.</p>,
-            placement: 'top',
-        },
-        {
-            target: '#tour-output-tab-results', // ID on the "Results" TabTrigger
-            content: <p>The <strong>Results</strong> tab shows the data returned by your query. You can filter and sort this data.</p>,
-            placement: 'top',
-            // before: () => setCurrentOutputTab('results'), // If tour needs to force tab switch
-        },
-        {
-            target: '#tour-output-tab-visualize', // ID on the "Visualize" TabTrigger
-            content: <p>If your query results are suitable, the <strong>Visualize</strong> tab will offer chart suggestions. Click one to see a chart!</p>,
-            placement: 'top',
-            // before: () => jobResults && suggestedCharts.length > 0 && setCurrentOutputTab('visualize'),
-        },
-        {
-            target: '#tour-excel-download-button-results', // ID on the Excel download button in Results tab
-            content: <p>You can download your query results (and an active chart if on the Visualize tab) as an <strong>Excel Report</strong> here.</p>,
-            placement: 'top-start',
-        },
-        {
-            target: '#tour-chatbot-toggle', // Assuming you add an ID to the chatbot toggle button
-            content: <p>Need more help or have quick questions? Open our <strong>AI Chat Assistant</strong> anytime!</p>,
-            placement: 'top-end',
-        }
-    ];
+    const viewerTourSteps = useMemo((): Step[] => {
+        const steps: Step[] = [
+            {
+                target: '#tour-viewer-workspace-select-trigger',
+                content: (
+                    <div>
+                        <h4>Welcome to the Data Explorer!</h4>
+                        <p>This is where you interact with your data. First, ensure you have the correct <strong>Workspace</strong> selected here.</p>
+                    </div>
+                ),
+                placement: 'bottom-start',
+                disableBeacon: true,
+            },
+            {
+                target: '#tour-sidebar-tab-tables',
+                content: <p>Explore your available <strong>Tables</strong> in the selected workspace here. Click a table to see its preview and auto-populate a basic query in the editor.</p>,
+                placement: 'right',
+            },
+            {
+                target: '#tour-ai-assist-section', // Target the whole AI section first
+                content: <p>Use the <strong>AI Assist</strong> section to generate SQL from natural language. Type your question about the data in the prompt box.</p>,
+                placement: 'bottom',
+            },
+            {
+                target: '#tour-ai-mode-select-trigger', // Target the AI Mode SelectTrigger
+                content: (
+                    <div>
+                        <p>Choose an <strong>AI Mode</strong>:</p>
+                        <ul className="list-disc list-inside mt-1 text-xs">
+                            <li><strong>AUTO:</strong> The AI considers all tables in the selected workspace.</li>
+                            <li><strong>SEMI-AUTO:</strong> You can select specific tables (and even columns) for the AI to focus on, which is great for large workspaces.</li>
+                        </ul>
+                    </div>
+                ),
 
+            },
 
-        const handleViewerJoyrideCallback = (data: CallBackProps) => {
-        const { status, type, action, index, step } = data;
+            {
+                target: '#tour-nl-prompt-input',
+                content: <p>Type your data question here (e.g., "show total sales per product category last month").</p>,
+                placement: 'bottom',
+            },
+            {
+                target: '#tour-generate-sql-button',
+                content: <p>Click <strong>Generate SQL</strong>. The AI will create a query based on your prompt and mode selection.</p>,
+                placement: 'bottom',
+            },
+            {
+                target: '#tour-sql-editor-wrapper',
+                content: <p>The generated SQL (or your manually written query) appears here. You can edit it directly.</p>,
+                placement: 'bottom',
+            },
+            {
+                target: '#tour-run-query-button-main', // Use the specific ID for the main run button
+                content: <p>Click <strong>Run Query</strong> to execute the SQL and see the results below.</p>,
+                placement: 'bottom',
+                // Add a delay or check if jobResults exist before proceeding to next step
+                // This is tricky because the next steps depend on results.
+                // For a simple tour, we assume user will run a query.
+            },
+            {
+                target: '#tour-output-tabs-list',
+                content: <p>Query results and related features appear in these tabs.</p>,
+                placement: 'top',
+            },
+            {
+                target: '#tour-output-tab-results',
+                content: <p>The <strong>Results</strong> tab displays the data from your query. You can also find filter controls here if applicable.</p>,
+                placement: 'top',
+                // Condition: Only show if jobResults exist? Joyride should skip if target not found.
+            },
+            {
+                target: '#tour-output-tab-visualize',
+                content: <p>The <strong>Visualize</strong> tab offers chart suggestions based on your query results. Click a suggestion to view the chart.</p>,
+                placement: 'top',
+            },
+            {
+                target: '#tour-output-tab-ai-summary', // Ensure this ID is on your AI Summary TabsTrigger
+                content: <p>Get an <strong>AI-generated summary</strong> of your query results here.</p>,
+                placement: 'top',
+            },
+            // {
+            //     target: '#tour-excel-download-button-results',
+            //     content: <p>Download your query data (and active chart, if any) as an <strong>Excel Report</strong>.</p>,
+            //     placement: 'top-start',
+            // },
+            {
+                target: '#tour-sidebar-tab-history',
+                content: <p>Review your <strong>Query History</strong> here. Click an item to reload the SQL into the editor.</p>,
+                placement: 'right',
+            },
+            {
+                target: '#tour-chatbot-toggle',
+                content: <p>Need more help or have quick questions? Open our <strong>AI Chat Assistant</strong> anytime!</p>,
+                placement: 'top-end',
+            }
+        ];
+        return steps;
+    }, [aiMode]); // Re-calculate steps if aiMode changes for conditional SEMI_AUTO steps
+
+    const handleViewerJoyrideCallback = (data: CallBackProps) => {
+        // ... (existing callback logic - ensure it handles TARGET_NOT_FOUND gracefully)
+        const { status, type, action, index, step, lifecycle } = data;
         const finishedStatuses: string[] = [STATUS.FINISHED, STATUS.SKIPPED];
 
-        console.log('[ViewerTour Callback]', { status, type, action, index, step: step?.target });
+        console.log('[ViewerTour Callback]', { status, type, action, index, lifecycle, target: step?.target });
 
         if (type === EVENTS.TARGET_NOT_FOUND) {
             console.error(`[ViewerTour Error] Target not found for step ${index}: ${step.target}`);
-            // Decide if to skip or stop. For now, let's try to continue if possible.
-            // You might want to setRunViewerTour(false) to stop.
+            // If a target isn't found, you might want to automatically skip to the next step or end the tour.
+            // For now, Joyride might just show the tooltip in the center.
+            // To skip: if (joyrideRef.current) joyrideRef.current.next(); // Needs a ref to Joyride component
         }
+        if (type === EVENTS.STEP_AFTER && step.target === '#tour-run-query-button-main') {
+            // After the "Run Query" step, you might want to pause the tour
+            // and wait for results before proceeding to steps about results/charts.
+            // This requires more complex logic, perhaps by setting runViewerTour to false
+            // and then re-enabling it once jobResults appear.
+            // For a simpler tour, we assume the user runs a query and elements become visible.
+            console.log("After 'Run Query' step. User should now see results tabs.");
+        }
+
 
         if (action === 'close' || finishedStatuses.includes(status) || type === 'tour:end') {
             console.log('[ViewerTour Callback] Tour ending or closing.');
@@ -398,19 +435,8 @@ const BigQueryTableViewer: React.FC = () => {
                 localStorage.setItem(VIEWER_TOUR_VERSION, 'true');
             }
         }
-        // Logic to automatically switch tabs if a step requires it
-        // This can get complex. Simpler is to guide the user to click.
-        // Example for advanced handling:
-        // if (type === EVENTS.STEP_BEFORE) {
-        //   if (step.target === '#tour-sidebar-tab-history') {
-        //     setCurrentSidebarTab('history');
-        //   } else if (step.target === '#tour-output-tab-results' && currentOutputTab !== 'results') {
-        //     setCurrentOutputTab('results');
-        //   } else if (step.target === '#tour-output-tab-visualize' && currentOutputTab !== 'visualize' && jobResults && suggestedCharts.length > 0) {
-        //      setCurrentOutputTab('visualize');
-        //   }
-        // }
     };
+
 // ... other functions like fetchTables, submitSqlJob etc ...
 // +++ MODIFICATION START: Derive available columns for SEMI_AUTO mode +++
 // --- START: Added useMemo Hook ---
@@ -2231,6 +2257,7 @@ const renderEditorPane = () => {
                     {/* <ThemeToggle /> */}
                 </div>
                 <Button 
+                    id="tour-run-query-button-main"
                     onClick={submitSqlJob} 
                     disabled={isRunningJob || !sql.trim()} 
                     size="sm" 
@@ -2250,7 +2277,7 @@ const renderEditorPane = () => {
 
             {/* AI Assist Section */}
             {showNlSection && (
-                <div className="p-4 bg-background/80 border-b border-border flex-shrink-0 relative transition-all duration-300"> 
+                <div id="tour-ai-assist-section" className="p-4 bg-background/80 border-b border-border flex-shrink-0 relative transition-all duration-300"> 
                     <div className="flex gap-3 items-center">
                         <Select
                             value={aiMode}
@@ -2264,7 +2291,7 @@ const renderEditorPane = () => {
                             }}
                             disabled={generatingSql || !selectedDatasetId}
                         >
-                            <SelectTrigger className="w-[140px] h-9 text-xs flex-shrink-0 font-medium bg-background/80 transition-all duration-200 focus:ring-2 focus:ring-primary/20">
+                            <SelectTrigger id="tour-ai-mode-select-trigger" className="w-[140px] h-9 text-xs flex-shrink-0 font-medium bg-background/80 transition-all duration-200 focus:ring-2 focus:ring-primary/20">
                                 <SelectValue placeholder="AI Mode" />
                             </SelectTrigger>
                             <SelectContent className="shadow-lg border-primary/10">
@@ -2655,6 +2682,7 @@ const renderEditorPane = () => {
                         </TabsTrigger>
                          {/* +++ Add AI Summary Tab Trigger +++ */}
                          <TabsTrigger
+                            id="tour-output-tab-ai-summary"
                              value="ai-summary"
                              className="text-xs h-7 px-3 data-[state=active]:bg-background data-[state=active]:shadow-sm rounded-sm"
                              disabled={!hasResultsToShow || !hasJobCompletedSuccessfully || loadingAiSummary} // Disable if no results, job not done, or loading
@@ -2809,7 +2837,7 @@ const renderEditorPane = () => {
                             <Tooltip>
                                 <TooltipTrigger asChild>
                                      <Button
-                                         id="tour-excel-download-button-results"
+                                        //  id="tour-excel-download-button-results"
                                          variant="outline"
                                          size="sm"
                                          onClick={handleExcelDownload}
@@ -3233,6 +3261,7 @@ const renderEditorPane = () => {
   <Tooltip>
                     <TooltipTrigger asChild>
                         <Button
+                            id="tour-chatbot-toggle"
                             variant="secondary" // Or "default" or "outline"
                             size="icon"
                             className="fixed bottom-4 left-4 z-50 rounded-full h-12 w-12 shadow-lg" // Positioned bottom-left

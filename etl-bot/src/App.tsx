@@ -103,34 +103,31 @@ function AppContent() {
     const APP_TOUR_VERSION = 'appLayoutTour_v1'; // Unique key for this tour
     useEffect(() => {
         const hasSeenAppTour = localStorage.getItem(APP_TOUR_VERSION);
-        console.log('[AppTour Effect] loading:', loading, 'user:', !!user, 'hasSeenAppTour:', hasSeenAppTour);
+        console.log('[AppTour Effect] loading:', loading, 'user:', !!user, 'hasSeenAppTour:', hasSeenAppTour, 'path:', location.pathname);
 
-        // Start tour if:
-        // 1. Auth loading is complete
-        // 2. User is logged in
-        // 3. Tour hasn't been seen
-        // 4. The switch button is likely to be visible (i.e., user is on explorer or upload page)
-        if (!loading && user && !hasSeenAppTour && (location.pathname === EXPLORER_PATH || location.pathname === UPLOAD_PATH || location.pathname === "/")) {
-            // Check if the target element exists
-            const switchButtonElement = document.getElementById('tour-app-switch-view-button');
-            console.log('[AppTour Effect] switchButtonElement exists:', !!switchButtonElement);
-            if (switchButtonElement) {
-                // Small delay to ensure DOM elements are fully rendered and styles applied
+        if (!loading && user && !hasSeenAppTour) {
+            // Check if the *first* critical target element exists
+            const firstTargetElement = document.getElementById('tour-app-switch-view-button'); // Or whatever your first step targets
+            // The theme toggle button might be anywhere, so its existence check can be less strict for *starting* the tour,
+            // but Joyride will still need it when its step comes up.
+
+            console.log('[AppTour Effect] firstTargetElement (switch button) exists:', !!firstTargetElement);
+            
+            // Only start the tour if on a relevant page for the *first* step
+            if (firstTargetElement && (location.pathname === EXPLORER_PATH || location.pathname === UPLOAD_PATH || location.pathname === "/")) {
                 const timer = setTimeout(() => {
                     console.log('[AppTour Effect] Setting runAppTour to true.');
                     setRunAppTour(true);
-                }, 700); // Slightly longer delay as AppControls might render after main views
+                }, 700);
                 return () => clearTimeout(timer);
             } else {
-                 console.warn('[AppTour Effect] Switch button not found in DOM yet.');
+                 if (!firstTargetElement) console.warn('[AppTour Effect] First target (switch button) not found in DOM yet.');
+                 else console.log('[AppTour Effect] Not on a page where switch button tour (first step) is relevant.');
             }
         } else {
-            if(loading) console.log('[AppTour Effect] Auth still loading.');
-            if(!user) console.log('[AppTour Effect] No user logged in.');
-            if(hasSeenAppTour) console.log('[AppTour Effect] App tour already seen.');
-            if(!(location.pathname === EXPLORER_PATH || location.pathname === UPLOAD_PATH || location.pathname === "/")) console.log('[AppTour Effect] Not on a page where switch button tour is relevant.');
+            // ... (existing console logs for why tour isn't starting) ...
         }
-    }, [loading, user, location.pathname, APP_TOUR_VERSION]); // Depend on loading, user, and location
+    }, [loading, user, location.pathname, APP_TOUR_VERSION]);
 
     const appTourSteps: Step[] = [
         {
@@ -144,6 +141,22 @@ function AppContent() {
                 </div>
             ),
             placement: 'left', // Or 'top' if it feels better
+            disableBeacon: true,
+            floaterProps: { disableAnimation: true },
+        },
+          {
+            target: '#tour-theme-toggle-button', // Matches the ID you add to your theme toggle
+            content: (
+                <div className="text-sm">
+                    <h4>Change Theme</h4>
+                    <p className="mt-1">
+                        Click here to switch between <strong>Light</strong> and <strong>Dark</strong> themes for the application.
+                    </p>
+                </div>
+            ),
+            placement: 'bottom', // Or 'left', 'right', 'top' depending on button location
+            // Example: If your theme toggle is in a top-right header, 'bottom-end' might be good.
+            // If it's standalone, 'bottom' or 'top' might be fine.
             disableBeacon: true,
             floaterProps: { disableAnimation: true },
         },
