@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef, useCallback, useMemo } from "react"; // Added useMemo
+import Joyride, { Step, CallBackProps, STATUS, EVENTS } from 'react-joyride'; // +++ Joyride Import +++
 import { Button, buttonVariants } from "@/components/ui/button";
 import Editor from '@monaco-editor/react'
 import { Input } from "@/components/ui/input";
@@ -26,7 +27,7 @@ import {
     LineChart as LineChartIcon, PieChart as PieChartIcon, Dot , Trash2 ,History,Copy,
     ListFilter, // Added Filter icon
     MessageSquare,X,
-    FileSpreadsheet, Clock ,Sparkles , LightbulbIcon , AlertCircle , Play ,Settings2,Check,ChevronsUpDown,CheckCheck
+    FileSpreadsheet, Clock ,Sparkles , LightbulbIcon , AlertCircle , Play ,Settings2,Check,ChevronsUpDown,CheckCheck,    // ... existing icons ...
 } from "lucide-react";
 // import { useAuth } from '@/contexts/AuthContext';
 import {
@@ -129,6 +130,9 @@ type ActiveVisualizationConfig = {
     rationale?: string;
   };
 const BigQueryTableViewer: React.FC = () => {
+        // +++ Joyride State for BigQueryTableViewer Tour +++
+    const [runViewerTour, setRunViewerTour] = useState<boolean>(false);
+    const VIEWER_TOUR_VERSION = 'bigQueryTableViewerTour_v2'; // Increment if you change the tour significantly
     //   const { userProfile,  } = useAuth();
     //   const isAdmin = userProfile?.role === 'admin';
     const getErrorMessage = useCallback((error: any): string => { 
@@ -257,6 +261,181 @@ const BigQueryTableViewer: React.FC = () => {
     //     return Array.from(tables);
     // }, []);
 // Inside BigQueryTableViewer component
+    // Effect to start the tour on first visit & when data is loaded
+    useEffect(() => {
+        const hasSeenViewerTour = localStorage.getItem(VIEWER_TOUR_VERSION);
+        console.log(`[ViewerTour Effect] loadingDatasets: ${loadingDatasets}, hasSeenViewerTour: ${hasSeenViewerTour}, selectedDatasetId: ${selectedDatasetId}`);
+
+        // Tour starts if:
+        // 1. Not seen before.
+        // 2. Initial datasets have loaded (or failed to load, indicating page is somewhat ready).
+        // 3. A dataset is selected (many UI elements depend on this).
+        if (!hasSeenViewerTour && !loadingDatasets && selectedDatasetId) {
+            // Polling for critical elements to ensure they are in the DOM
+            let attempts = 0;
+            const maxAttempts = 15; // Try for ~7.5 seconds
+            const intervalId = setInterval(() => {
+                attempts++;
+                const workspaceSelectEl = document.getElementById('tour-viewer-workspace-select-trigger'); // Specific trigger
+                const tablesTabEl = document.getElementById('tour-sidebar-tab-tables');
+                const aiPromptEl = document.getElementById('tour-nl-prompt-input');
+
+                console.log(`[ViewerTour Polling Attempt ${attempts}] Workspace: ${!!workspaceSelectEl}, TablesTab: ${!!tablesTabEl}, AIPrompt: ${!!aiPromptEl}`);
+
+                if (workspaceSelectEl && tablesTabEl && aiPromptEl) {
+                    console.log('[ViewerTour Polling] Critical initial elements found! Starting tour.');
+                    // Short delay for styling/rendering completion
+                    setTimeout(() => setRunViewerTour(true), 700);
+                    clearInterval(intervalId); // Stop polling
+                    // No need to return clearTimeout from here as interval is cleared
+                } else if (attempts >= maxAttempts) {
+                    console.warn('[ViewerTour Polling] Max attempts reached. Key elements for tour not found.');
+                    clearInterval(intervalId);
+                }
+            }, 500);
+            return () => {
+                console.log('[ViewerTour Effect Cleanup] Clearing polling interval if active.');
+                clearInterval(intervalId);
+            }
+        } else {
+             if (hasSeenViewerTour) console.log('[ViewerTour Effect] Tour already seen.');
+             if (loadingDatasets) console.log('[ViewerTour Effect] Datasets still loading.');
+             if (!selectedDatasetId) console.log('[ViewerTour Effect] No dataset selected yet.');
+        }
+    }, [loadingDatasets, selectedDatasetId, VIEWER_TOUR_VERSION]); // Dependencies
+
+    const viewerTourSteps = useMemo((): Step[] => {
+        const steps: Step[] = [
+            {
+                target: '#tour-viewer-workspace-select-trigger',
+                content: (
+                    <div>
+                        <h4>Welcome to the Data Explorer!</h4>
+                        <p>This is where you interact with your data. First, ensure you have the correct <strong>Workspace</strong> selected here.</p>
+                    </div>
+                ),
+                placement: 'bottom-start',
+                disableBeacon: true,
+            },
+            {
+                target: '#tour-sidebar-tab-tables',
+                content: <p>Explore your available <strong>Tables</strong> in the selected workspace here. Click a table to see its preview and auto-populate a basic query in the editor.</p>,
+                placement: 'right',
+            },
+            {
+                target: '#tour-ai-assist-section', // Target the whole AI section first
+                content: <p>Use the <strong>AI Assist</strong> section to generate SQL from natural language. Type your question about the data in the prompt box.</p>,
+                placement: 'bottom',
+            },
+            {
+                target: '#tour-ai-mode-select-trigger', // Target the AI Mode SelectTrigger
+                content: (
+                    <div>
+                        <p>Choose an <strong>AI Mode</strong>:</p>
+                        <ul className="list-disc list-inside mt-1 text-xs">
+                            <li><strong>AUTO:</strong> The AI considers all tables in the selected workspace.</li>
+                            <li><strong>SEMI-AUTO:</strong> You can select specific tables (and even columns) for the AI to focus on, which is great for large workspaces.</li>
+                        </ul>
+                    </div>
+                ),
+
+            },
+
+            {
+                target: '#tour-nl-prompt-input',
+                content: <p>Type your data question here (e.g., "show total sales per product category last month").</p>,
+                placement: 'bottom',
+            },
+            {
+                target: '#tour-generate-sql-button',
+                content: <p>Click <strong>Generate SQL</strong>. The AI will create a query based on your prompt and mode selection.</p>,
+                placement: 'bottom',
+            },
+            {
+                target: '#tour-sql-editor-wrapper',
+                content: <p>The generated SQL (or your manually written query) appears here. You can edit it directly.</p>,
+                placement: 'bottom',
+            },
+            {
+                target: '#tour-run-query-button-main', // Use the specific ID for the main run button
+                content: <p>Click <strong>Run Query</strong> to execute the SQL and see the results below.</p>,
+                placement: 'bottom',
+                // Add a delay or check if jobResults exist before proceeding to next step
+                // This is tricky because the next steps depend on results.
+                // For a simple tour, we assume user will run a query.
+            },
+            {
+                target: '#tour-output-tabs-list',
+                content: <p>Query results and related features appear in these tabs.</p>,
+                placement: 'top',
+            },
+            {
+                target: '#tour-output-tab-results',
+                content: <p>The <strong>Results</strong> tab displays the data from your query. You can also find filter controls here if applicable.</p>,
+                placement: 'top',
+                // Condition: Only show if jobResults exist? Joyride should skip if target not found.
+            },
+            {
+                target: '#tour-output-tab-visualize',
+                content: <p>The <strong>Visualize</strong> tab offers chart suggestions based on your query results. Click a suggestion to view the chart.</p>,
+                placement: 'top',
+            },
+            {
+                target: '#tour-output-tab-ai-summary', // Ensure this ID is on your AI Summary TabsTrigger
+                content: <p>Get an <strong>AI-generated summary</strong> of your query results here.</p>,
+                placement: 'top',
+            },
+            // {
+            //     target: '#tour-excel-download-button-results',
+            //     content: <p>Download your query data (and active chart, if any) as an <strong>Excel Report</strong>.</p>,
+            //     placement: 'top-start',
+            // },
+            {
+                target: '#tour-sidebar-tab-history',
+                content: <p>Review your <strong>Query History</strong> here. Click an item to reload the SQL into the editor.</p>,
+                placement: 'right',
+            },
+            {
+                target: '#tour-chatbot-toggle',
+                content: <p>Need more help or have quick questions? Open our <strong>AI Chat Assistant</strong> anytime!</p>,
+                placement: 'top-end',
+            }
+        ];
+        return steps;
+    }, [aiMode]); // Re-calculate steps if aiMode changes for conditional SEMI_AUTO steps
+
+    const handleViewerJoyrideCallback = (data: CallBackProps) => {
+        // ... (existing callback logic - ensure it handles TARGET_NOT_FOUND gracefully)
+        const { status, type, action, index, step, lifecycle } = data;
+        const finishedStatuses: string[] = [STATUS.FINISHED, STATUS.SKIPPED];
+
+        console.log('[ViewerTour Callback]', { status, type, action, index, lifecycle, target: step?.target });
+
+        if (type === EVENTS.TARGET_NOT_FOUND) {
+            console.error(`[ViewerTour Error] Target not found for step ${index}: ${step.target}`);
+            // If a target isn't found, you might want to automatically skip to the next step or end the tour.
+            // For now, Joyride might just show the tooltip in the center.
+            // To skip: if (joyrideRef.current) joyrideRef.current.next(); // Needs a ref to Joyride component
+        }
+        if (type === EVENTS.STEP_AFTER && step.target === '#tour-run-query-button-main') {
+            // After the "Run Query" step, you might want to pause the tour
+            // and wait for results before proceeding to steps about results/charts.
+            // This requires more complex logic, perhaps by setting runViewerTour to false
+            // and then re-enabling it once jobResults appear.
+            // For a simpler tour, we assume the user runs a query and elements become visible.
+            console.log("After 'Run Query' step. User should now see results tabs.");
+        }
+
+
+        if (action === 'close' || finishedStatuses.includes(status) || type === 'tour:end') {
+            console.log('[ViewerTour Callback] Tour ending or closing.');
+            setRunViewerTour(false);
+            if (status === STATUS.FINISHED || status === STATUS.SKIPPED) {
+                console.log('[ViewerTour Callback] Marking viewer tour as seen.');
+                localStorage.setItem(VIEWER_TOUR_VERSION, 'true');
+            }
+        }
+    };
 
 // ... other functions like fetchTables, submitSqlJob etc ...
 // +++ MODIFICATION START: Derive available columns for SEMI_AUTO mode +++
@@ -1463,7 +1642,7 @@ useEffect(() => {
                         onValueChange={handleDatasetChange}
                         disabled={loadingTables || loadingSchema || isRunningJob || availableDatasets.length === 0}
                     >
-                        <SelectTrigger id="dataset-select" className="w-full h-8 text-xs">
+                        <SelectTrigger id="tour-viewer-workspace-select-trigger" className="w-full h-8 text-xs">
                             <SelectValue placeholder="Select a workspace..." />
                         </SelectTrigger>
                         <SelectContent>
@@ -1490,11 +1669,11 @@ useEffect(() => {
                     {selectedDatasetId.toLocaleUpperCase()}
                 </p>
                 <Tabs value={currentSidebarTab} onValueChange={setCurrentSidebarTab} className="flex-grow flex flex-col overflow-hidden">
-                    <TabsList className="grid grid-cols-4 mb-3 h-8 bg-muted flex-shrink-0">
+                    <TabsList id="tour-sidebar-tabs-list" className="grid grid-cols-4 mb-3 h-8 bg-muted flex-shrink-0">
                          {/* Tabs use default theme styles */}
-                        <TabsTrigger value="tables" className="text-xs h-7"><Database className="mr-1 h-3 w-3"/>Tables</TabsTrigger>
-                        <TabsTrigger value="favorites" className="text-xs h-7"><Bookmark className="mr-1 h-3 w-3"/>Favorites</TabsTrigger>
-                        <TabsTrigger value="history" className="text-xs h-7"><History className="mr-1 h-3 w-3"/>History</TabsTrigger>
+                        <TabsTrigger  id="tour-sidebar-tab-tables" value="tables" className="text-xs h-7"><Database className="mr-1 h-3 w-3"/>Tables</TabsTrigger>
+                        <TabsTrigger  value="favorites" className="text-xs h-7"><Bookmark className="mr-1 h-3 w-3"/>Favorites</TabsTrigger>
+                        <TabsTrigger  id="tour-sidebar-tab-history" value="history" className="text-xs h-7"><History className="mr-1 h-3 w-3"/>History</TabsTrigger>
                         <TabsTrigger value="schema" className="text-xs h-7"><ListTree className="mr-1 h-3 w-3"/>Schema</TabsTrigger>
                     </TabsList>
                     <div className="flex-grow overflow-hidden">
@@ -2078,6 +2257,7 @@ const renderEditorPane = () => {
                     {/* <ThemeToggle /> */}
                 </div>
                 <Button 
+                    id="tour-run-query-button-main"
                     onClick={submitSqlJob} 
                     disabled={isRunningJob || !sql.trim()} 
                     size="sm" 
@@ -2097,7 +2277,7 @@ const renderEditorPane = () => {
 
             {/* AI Assist Section */}
             {showNlSection && (
-                <div className="p-4 bg-background/80 border-b border-border flex-shrink-0 relative transition-all duration-300"> 
+                <div id="tour-ai-assist-section" className="p-4 bg-background/80 border-b border-border flex-shrink-0 relative transition-all duration-300"> 
                     <div className="flex gap-3 items-center">
                         <Select
                             value={aiMode}
@@ -2111,7 +2291,7 @@ const renderEditorPane = () => {
                             }}
                             disabled={generatingSql || !selectedDatasetId}
                         >
-                            <SelectTrigger className="w-[140px] h-9 text-xs flex-shrink-0 font-medium bg-background/80 transition-all duration-200 focus:ring-2 focus:ring-primary/20">
+                            <SelectTrigger id="tour-ai-mode-select-trigger" className="w-[140px] h-9 text-xs flex-shrink-0 font-medium bg-background/80 transition-all duration-200 focus:ring-2 focus:ring-primary/20">
                                 <SelectValue placeholder="AI Mode" />
                             </SelectTrigger>
                             <SelectContent className="shadow-lg border-primary/10">
@@ -2157,6 +2337,7 @@ const renderEditorPane = () => {
                         </Select>
                         <div className="relative flex-grow">
                             <Input
+                             id="tour-nl-prompt-input"
                                 ref={promptInputRef}
                                 placeholder={selectedTableId ? "Describe query in plain language..." : "Select table for AI assistance..."}
                                 value={nlPrompt}
@@ -2174,6 +2355,7 @@ const renderEditorPane = () => {
                             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                         </div>
                         <Button 
+                        id="tour-generate-sql-button"
                             onClick={handleGenerateSql} 
                             disabled={!nlPrompt.trim() || generatingSql || !selectedTableId} 
                             size="sm" 
@@ -2251,7 +2433,7 @@ const renderEditorPane = () => {
             )}
 
             {/* Monaco Editor Area */}
-            <div className="flex-grow relative bg-background">
+            <div id="tour-sql-editor-wrapper" className="flex-grow relative bg-background">
                 <Editor
                     language="sql"
                     value={sql}
@@ -2487,10 +2669,11 @@ const renderEditorPane = () => {
                  )}
 
                 <Tabs value={currentOutputTab} onValueChange={setCurrentOutputTab} className="flex-grow flex flex-col overflow-hidden">
-                    <TabsList className="mx-3 mt-2 mb-1 h-8 justify-start bg-muted p-0.5 rounded-md flex-shrink-0">
-                        <TabsTrigger value="data" className="text-xs h-7 px-3 data-[state=active]:bg-background data-[state=active]:shadow-sm rounded-sm"><Table2 className="mr-1.5 h-3.5 w-3.5"/>Preview</TabsTrigger>
-                        <TabsTrigger value="results" className="text-xs h-7 px-3 data-[state=active]:bg-background data-[state=active]:shadow-sm rounded-sm" disabled={!jobId && !jobResults}><ListTree className="mr-1.5 h-3.5 w-3.5"/>Results</TabsTrigger>
+                    <TabsList id="tour-output-tabs-list" className="mx-3 mt-2 mb-1 h-8 justify-start bg-muted p-0.5 rounded-md flex-shrink-0">
+                        <TabsTrigger id="tour-output-tab-data" value="data" className="text-xs h-7 px-3 data-[state=active]:bg-background data-[state=active]:shadow-sm rounded-sm"><Table2 className="mr-1.5 h-3.5 w-3.5"/>Preview</TabsTrigger>
+                        <TabsTrigger id="tour-output-tab-results" value="results" className="text-xs h-7 px-3 data-[state=active]:bg-background data-[state=active]:shadow-sm rounded-sm" disabled={!jobId && !jobResults}><ListTree className="mr-1.5 h-3.5 w-3.5"/>Results</TabsTrigger>
                         <TabsTrigger
+                        id="tour-output-tab-visualize"
                              value="visualize"
                              className="text-xs h-7 px-3 data-[state=active]:bg-background data-[state=active]:shadow-sm rounded-sm"
                              disabled={!hasResultsToShow || !canVisualize || filteredData.length === 0} // Disable if no results or no suggestions/active viz or filtered data is empty
@@ -2499,6 +2682,7 @@ const renderEditorPane = () => {
                         </TabsTrigger>
                          {/* +++ Add AI Summary Tab Trigger +++ */}
                          <TabsTrigger
+                            id="tour-output-tab-ai-summary"
                              value="ai-summary"
                              className="text-xs h-7 px-3 data-[state=active]:bg-background data-[state=active]:shadow-sm rounded-sm"
                              disabled={!hasResultsToShow || !hasJobCompletedSuccessfully || loadingAiSummary} // Disable if no results, job not done, or loading
@@ -2534,7 +2718,7 @@ const renderEditorPane = () => {
     const renderResultsContent = () => {
         // --- Initial checks (Loading, Error, No Original Results) ---
         if (isRunningJob && jobId) return ( <div className="flex justify-center items-center h-full p-4"><div className="text-center"><Loader2 className="h-8 w-8 animate-spin mx-auto mb-3 text-primary"/><p className="text-lg font-medium mb-1 text-foreground">Running Query...</p><p className="text-sm text-muted-foreground">Job ID: {jobId}</p></div></div> );
-        if (jobError) return ( <Alert variant="destructive" className="m-4"><Terminal className="h-4 w-4"/><AlertTitle>Query Error</AlertTitle><AlertDescription><p>{jobError}</p><Button onClick={submitSqlJob} variant="outline" size="sm" className="mt-3 text-xs h-7"><RefreshCw className="mr-1.5 h-3 w-3"/>Try Again</Button></AlertDescription></Alert> );
+        if (jobError) return ( <Alert variant="destructive" className="m-4"><Terminal className="h-4 w-4"/><AlertTitle>Query Error</AlertTitle><AlertDescription><p>{jobError}</p><Button  id="tour-run-query-button"  onClick={submitSqlJob} variant="outline" size="sm" className="mt-3 text-xs h-7"><RefreshCw className="mr-1.5 h-3 w-3"/>Try Again</Button></AlertDescription></Alert> );
         if (loadingResults && !jobResults?.rows) return ( <div className="flex justify-center items-center h-full p-4"><div className="text-center"><Loader2 className="h-8 w-8 animate-spin mx-auto mb-3 text-primary"/><p className="text-sm text-muted-foreground">Loading results...</p></div></div> ); // Show loading only if NO results yet
         if (resultsError) return ( <Alert variant="destructive" className="m-4"><Terminal className="h-4 w-4"/><AlertTitle>Results Error</AlertTitle><AlertDescription>{resultsError}</AlertDescription></Alert> );
         if (!jobResults) return ( <div className="flex items-center justify-center h-full text-muted-foreground p-6"><div className="text-center"><ListTree className="h-12 w-12 mx-auto mb-4 opacity-20"/><h3 className="text-lg font-medium mb-2 text-foreground">No Query Results</h3><p className="text-sm">Run a query using the editor above.</p></div></div> );
@@ -2653,6 +2837,7 @@ const renderEditorPane = () => {
                             <Tooltip>
                                 <TooltipTrigger asChild>
                                      <Button
+                                        //  id="tour-excel-download-button-results"
                                          variant="outline"
                                          size="sm"
                                          onClick={handleExcelDownload}
@@ -2746,7 +2931,24 @@ const renderEditorPane = () => {
 
     // --- MODIFIED: renderChartVisualization (Includes FilterControls, uses filteredData) ---
     const renderChartVisualization = () => {
+        const tooltipContentStyle = { // Renamed for clarity to avoid clash with itemStyle/labelStyle
+            background: 'hsl(var(--popover))',
+            color: 'hsl(var(--popover-foreground))', // This should ideally set the text color
+            border: '1px solid hsl(var(--border))',
+            borderRadius: 'var(--radius)',
+            fontSize: '12px',
+            padding: '8px 12px', // Added some padding for better looks
+        };
 
+        // Styles for the text items within the tooltip
+        const tooltipItemStyle = {
+            color: 'hsl(var(--popover-foreground))', // Explicitly set text color for items
+        };
+        const tooltipLabelStyle = {
+            color: 'hsl(var(--popover-foreground))', // Explicitly set text color for the label (if any)
+            fontWeight: 'bold', // Optional: make label bold
+            marginBottom: '4px', // Optional: space below label
+        };
          // Check if we should even be on this tab
          if (!activeVisualization) {
              return (
@@ -2813,7 +3015,9 @@ const renderEditorPane = () => {
                                 <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))"/>
                                 <XAxis dataKey={x_axis_column} angle={-45} textAnchor="end" height={60} interval={0} tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} stroke="hsl(var(--muted-foreground))"/>
                                 <YAxis tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} stroke="hsl(var(--muted-foreground))"/>
-                                <RechartsTooltip cursor={{ fill: 'hsla(var(--muted), 0.5)' }} contentStyle={{ background: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', borderRadius: 'var(--radius)', fontSize: '12px', color: 'hsl(var(--foreground))' }}/>
+                                <RechartsTooltip cursor={{ fill: 'hsla(var(--muted), 0.5)' }}                                     contentStyle={tooltipContentStyle}
+                                    itemStyle={tooltipItemStyle} 
+                                    labelStyle={tooltipLabelStyle} />
                                 <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '10px' }} />
                                 {validYCols.map((yCol, index) => ( <Bar key={yCol} dataKey={yCol} fill={COLORS[index % COLORS.length]} /> ))}
                              </BarChart>
@@ -2829,28 +3033,98 @@ const renderEditorPane = () => {
                                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))"/>
                                  <XAxis dataKey={x_axis_column} type="number" domain={['dataMin', 'dataMax']} scale="time" tickFormatter={(unixTime) => new Date(unixTime).toLocaleDateString()} tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} stroke="hsl(var(--muted-foreground))"/>
                                  <YAxis tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} stroke="hsl(var(--muted-foreground))"/>
-                                <RechartsTooltip labelFormatter={(unixTime) => new Date(unixTime).toLocaleString()} contentStyle={{ background: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', borderRadius: 'var(--radius)', fontSize: '12px', color: 'hsl(var(--foreground))' }}/>
+                                <RechartsTooltip labelFormatter={(unixTime) => new Date(unixTime).toLocaleString()}                                     contentStyle={tooltipContentStyle}
+                                    itemStyle={tooltipItemStyle} 
+                                    labelStyle={tooltipLabelStyle} />
                                  <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '10px' }} />
                                  {validYCols.map((yCol, index) => ( <Line key={yCol} type="monotone" dataKey={yCol} stroke={COLORS[index % COLORS.length]} strokeWidth={2} dot={false} activeDot={{ r: 6 }}/> ))}
                              </LineChart>
                          </ResponsiveContainer>
                      );
                  }
-                case 'pie': { /* ... PieChart aggregating `data` ... */
-                     const aggregatedPieData: { [key: string]: number } = {};
-                     data.forEach(row => { const category = String(row[x_axis_column] ?? 'Unknown'); const value = Number(row[validYCols[0]]); if (!isNaN(value)) { aggregatedPieData[category] = (aggregatedPieData[category] || 0) + value; }});
-                     const formattedDataPie = Object.entries(aggregatedPieData).map(([name, value]) => ({ name, value }));
-                    if (formattedDataPie.length === 0) { return <p className="p-4 text-orange-500">No valid data for pie chart after filtering.</p>; }
-                     return (
-                         <ResponsiveContainer width="100%" height="100%">
-                             <PieChart>
-                                 <Pie data={formattedDataPie} cx="50%" cy="50%" labelLine={false} outerRadius="80%" fill="#8884d8" dataKey="value" nameKey="name" label={{ fontSize: 10, fill: 'hsl(var(--foreground))' }}>
-                                     {formattedDataPie.map((_, index) => ( <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} /> ))}
-                                 </Pie>
-                                 <RechartsTooltip contentStyle={{ background: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', borderRadius: 'var(--radius)', fontSize: '12px', color: 'hsl(var(--foreground))' }}/>
-                                 <Legend wrapperStyle={{ fontSize: '11px' }}/>
-                             </PieChart>
-                         </ResponsiveContainer>
+                case 'pie': {
+                    // 1. Aggregate data for the pie chart
+                    const aggregatedData: { [key: string]: number } = {};
+                    data.forEach(row => {
+                        const category = String(row[x_axis_column] ?? 'Unknown');
+                        const value = Number(row[validYCols[0]]); // Assuming first y_axis_column is the value
+                        if (!isNaN(value)) {
+                            aggregatedData[category] = (aggregatedData[category] || 0) + value;
+                        }
+                    });
+
+                    // Convert to array and calculate total for percentages
+                    let chartDataEntries = Object.entries(aggregatedData).map(([name, value]) => ({ name, value }));
+                    const totalValue = chartDataEntries.reduce((sum, entry) => sum + entry.value, 0);
+
+                    // 2. Implement "Top N + Other" logic
+                    const MAX_PIE_SLICES = 7; // Show top 6 + "Other" if more
+                    let processedPieData = chartDataEntries;
+
+                    if (chartDataEntries.length > MAX_PIE_SLICES) {
+                        // Sort by value descending to find top N
+                        chartDataEntries.sort((a, b) => b.value - a.value);
+                        
+                        const topNData = chartDataEntries.slice(0, MAX_PIE_SLICES - 1);
+                        const otherData = chartDataEntries.slice(MAX_PIE_SLICES - 1);
+                        
+                        const otherValue = otherData.reduce((sum, item) => sum + item.value, 0);
+                        
+                        processedPieData = [...topNData];
+                        if (otherValue > 0) {
+                            processedPieData.push({ name: "Other", value: otherValue });
+                        }
+                    }
+                    
+                    // Add percentage to each slice for tooltip and potential label
+                    const finalPieData = processedPieData.map(entry => ({
+                        ...entry,
+                        percent: totalValue > 0 ? (entry.value / totalValue) : 0,
+                    })).sort((a,b) => b.value - a.value); // Sort final display by value
+
+                    if (finalPieData.length === 0) {
+                        return <p className="p-4 text-orange-500">No valid data for pie chart after filtering.</p>;
+                    }
+
+                    return (
+                        <ResponsiveContainer width="100%" height="100%">
+                            <PieChart margin={{ top: 5, right: 5, bottom: 5, left: 5 }}>
+                                <Pie
+                                    data={finalPieData}
+                                    cx="50%"
+                                    cy="50%" // Adjust cy if legend is at bottom to give more space
+                                    labelLine={false}
+                                    outerRadius="70%" // Adjust radius to make space for legend/labels
+                                    fill="#8884d8"
+                                    dataKey="value"
+                                    nameKey="name"
+                                    // Optional: Minimal labels on larger slices
+                                    label={({  percent }) =>
+                                        (percent && percent * 100 > 5) ? `${(percent * 100).toFixed(0)}%` : ''
+                                    }
+                                >
+                                    {finalPieData.map((_, index) => (
+                                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                                    ))}
+                                </Pie>
+                                <RechartsTooltip
+                                    contentStyle={tooltipContentStyle}
+                                    itemStyle={tooltipItemStyle}
+                                    labelStyle={tooltipLabelStyle}
+                                    formatter={(value: number, name: string, props: any) => {
+                                        const percentage = props.payload.percent !== undefined ? `(${(props.payload.percent * 100).toFixed(1)}%)` : '';
+                                        return [`${value.toLocaleString()} ${percentage}`, name];
+                                    }}
+                                />
+                                <Legend
+                                    wrapperStyle={{ fontSize: '11px', lineHeight: '20px', paddingTop: '15px' }}
+                                    // layout="vertical" // Consider if too many legend items
+                                    // align="right"
+                                    // verticalAlign="middle"
+                                    iconSize={10}
+                                />
+                            </PieChart>
+                        </ResponsiveContainer>
                     );
                 }
                  case 'scatter': { /* ... ScatterChart using `data` ... */
@@ -2864,7 +3138,9 @@ const renderEditorPane = () => {
                                 <CartesianGrid stroke="hsl(var(--border))"/>
                                  <XAxis type="number" dataKey="x" name={x_axis_column} tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} stroke="hsl(var(--muted-foreground))"/>
                                  <YAxis type="number" dataKey="y" name={yAxisName} tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} stroke="hsl(var(--muted-foreground))"/>
-                                 <RechartsTooltip cursor={{ strokeDasharray: '3 3' }} contentStyle={{ background: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', borderRadius: 'var(--radius)', fontSize: '12px', color: 'hsl(var(--foreground))' }} formatter={(value: any, name: string, props: any) => { const pointLabel = props.payload?.label; const axisName = name === 'x' ? x_axis_column : yAxisName; return [`${axisName}: ${value}`, pointLabel ? `Label: ${pointLabel}`: undefined]; }}/>
+                                 <RechartsTooltip cursor={{ strokeDasharray: '3 3' }}                                     contentStyle={tooltipContentStyle}
+                                    itemStyle={tooltipItemStyle} 
+                                    labelStyle={tooltipLabelStyle} />
                                 <Scatter name={yAxisName} data={formattedDataScatter} fill={COLORS[0]}/>
                             </ScatterChart>
                         </ResponsiveContainer>
@@ -2925,9 +3201,33 @@ const renderEditorPane = () => {
     // --- Main Component Return ---
     return (
         <TooltipProvider>
+                        <Joyride
+                steps={viewerTourSteps}
+                run={runViewerTour}
+                continuous
+                scrollToFirstStep
+                showProgress
+                showSkipButton
+                callback={handleViewerJoyrideCallback}
+                // debug // Useful during development
+                styles={{
+                    options: {
+                        zIndex: 10000,
+                        arrowColor: 'hsl(var(--popover))',
+                        backgroundColor: 'hsl(var(--popover))',
+                        primaryColor: 'hsl(var(--primary))',
+                        textColor: 'hsl(var(--popover-foreground))',
+                    },
+                    tooltipContainer: { textAlign: "left", },
+                    buttonNext: { backgroundColor: "hsl(var(--primary))", color: "hsl(var(--primary-foreground))", borderRadius: "var(--radius)" },
+                    buttonBack: { marginRight: 10, color: "hsl(var(--primary))" },
+                    buttonSkip: { color: "hsl(var(--muted-foreground))" }
+                }}
+                locale={{ last: 'Finish Tour', skip: 'Skip', next: 'Next', back: 'Back' }}
+            />
             <div className="flex h-full bg-background text-foreground overflow-hidden text-sm">
                 {/* Sidebar uses card background */}
-                <div className={`border-r border-border bg-card flex flex-col flex-shrink-0 transition-all duration-300 ease-in-out ${ sidebarCollapsed ? 'w-12' : 'w-64 md:w-72' }`} >
+                <div id="tour-sidebar-wrapper"  className={`border-r border-border bg-card flex flex-col flex-shrink-0 transition-all duration-300 ease-in-out ${ sidebarCollapsed ? 'w-12' : 'w-64 md:w-72' }`} >
                     {/* Sidebar Top Section (Collapse Button) */}
                     <div className={`p-2 border-b border-border flex ${sidebarCollapsed?'justify-center':'justify-end'} flex-shrink-0`}>
                          <Tooltip> <TooltipTrigger asChild><Button variant="ghost" size="icon" className="h-7 w-7" onClick={()=>setSidebarCollapsed(!sidebarCollapsed)}>{sidebarCollapsed?<ChevronRight className="h-4 w-4"/>:<ChevronLeft className="h-4 w-4"/>}</Button></TooltipTrigger><TooltipContent side="right">{sidebarCollapsed?'Expand':'Collapse'}</TooltipContent></Tooltip>
@@ -2937,7 +3237,9 @@ const renderEditorPane = () => {
                         {sidebarCollapsed ? (
                              <div className="flex flex-col items-center pt-3 gap-3">
                                 {/* Collapsed Icons... */}
-                                <Tooltip><TooltipTrigger asChild><Button variant={currentSidebarTab==='tables'?'secondary':'ghost'} size="icon" className="h-7 w-7" onClick={()=>{setCurrentSidebarTab('tables'); setSidebarCollapsed(false);}}><Database className="h-4 w-4"/></Button></TooltipTrigger><TooltipContent side="right">Tables</TooltipContent></Tooltip>
+                                <Tooltip><TooltipTrigger asChild><Button
+                                id="tour-chatbot-toggle"
+                                variant={currentSidebarTab==='tables'?'secondary':'ghost'} size="icon" className="h-7 w-7" onClick={()=>{setCurrentSidebarTab('tables'); setSidebarCollapsed(false);}}><Database className="h-4 w-4"/></Button></TooltipTrigger><TooltipContent side="right">Tables</TooltipContent></Tooltip>
                                 <Tooltip><TooltipTrigger asChild><Button variant={currentSidebarTab==='favorites'?'secondary':'ghost'} size="icon" className="h-7 w-7" onClick={()=>{setCurrentSidebarTab('favorites'); setSidebarCollapsed(false);}}><Bookmark className="h-4 w-4"/></Button></TooltipTrigger><TooltipContent side="right">Favorites</TooltipContent></Tooltip>
                                 <Tooltip><TooltipTrigger asChild><Button variant={currentSidebarTab==='history'?'secondary':'ghost'} size="icon" className="h-7 w-7" onClick={()=>{setCurrentSidebarTab('history'); setSidebarCollapsed(false);}}><History className="h-4 w-4"/></Button></TooltipTrigger><TooltipContent side="right">History</TooltipContent></Tooltip>
                                 <Tooltip><TooltipTrigger asChild><Button variant={currentSidebarTab==='schema'?'secondary':'ghost'} size="icon" className="h-7 w-7" onClick={()=>{setCurrentSidebarTab('schema'); setSidebarCollapsed(false);}}><ListTree className="h-4 w-4"/></Button></TooltipTrigger><TooltipContent side="right">Schema</TooltipContent></Tooltip>
@@ -2959,6 +3261,7 @@ const renderEditorPane = () => {
   <Tooltip>
                     <TooltipTrigger asChild>
                         <Button
+                            id="tour-chatbot-toggle"
                             variant="secondary" // Or "default" or "outline"
                             size="icon"
                             className="fixed bottom-4 left-4 z-50 rounded-full h-12 w-12 shadow-lg" // Positioned bottom-left
