@@ -264,7 +264,7 @@ const BigQueryTableViewer: React.FC = () => {
     // Effect to start the tour on first visit & when data is loaded
     useEffect(() => {
         const hasSeenViewerTour = localStorage.getItem(VIEWER_TOUR_VERSION);
-        console.log(`[ViewerTour Effect] loadingDatasets: ${loadingDatasets}, hasSeenViewerTour: ${hasSeenViewerTour}, selectedDatasetId: ${selectedDatasetId}`);
+        console.log(`[ViewerTour Effect] loading Workspace: ${loadingDatasets}, hasSeenViewerTour: ${hasSeenViewerTour}, selectedWorkspaceId: ${selectedDatasetId}`);
 
         // Tour starts if:
         // 1. Not seen before.
@@ -299,8 +299,8 @@ const BigQueryTableViewer: React.FC = () => {
             }
         } else {
              if (hasSeenViewerTour) console.log('[ViewerTour Effect] Tour already seen.');
-             if (loadingDatasets) console.log('[ViewerTour Effect] Datasets still loading.');
-             if (!selectedDatasetId) console.log('[ViewerTour Effect] No dataset selected yet.');
+             if (loadingDatasets) console.log('[ViewerTour Effect] Workspace still loading.');
+             if (!selectedDatasetId) console.log('[ViewerTour Effect] No workspace selected yet.');
         }
     }, [loadingDatasets, selectedDatasetId, VIEWER_TOUR_VERSION]); // Dependencies
 
@@ -574,7 +574,7 @@ const handleSuggestionClick = useCallback((suggestion: string) => {
 
 const handleDeleteTable = useCallback(async (datasetIdToDeleteFrom: string, tableIdToDelete: string) => {
     if (!datasetIdToDeleteFrom) {
-         toast({ title: "Error", description: "Dataset ID missing for deletion.", variant: "destructive" });
+         toast({ title: "Error", description: "Workspace ID missing for deletion.", variant: "destructive" });
          return;
     }
      // Use AlertDialog for confirmation (preferred) or window.confirm
@@ -941,11 +941,11 @@ const handleExcelDownload = useCallback(async () => {
     const submitSqlJob = useCallback(async () => {
         // Initial checks for dataset selection remain the same
         if (!fullDatasetId) {
-            toast({ title: "Dataset Required", description: "Please select a workspace first.", variant: "destructive" });
+            toast({ title: "Workspace Required", description: "Please select a workspace first.", variant: "destructive" });
             return;
         }
          if (!selectedDatasetId) {
-             toast({ title: "Dataset Selection Issue", description: "Selected dataset ID is missing.", variant: "destructive" });
+             toast({ title: "Workspace Selection Issue", description: "Selected workspace ID is missing.", variant: "destructive" });
              return;
         }
 
@@ -972,9 +972,9 @@ const handleExcelDownload = useCallback(async () => {
             const selectedDatasetMetadata = availableDatasets.find(ds => ds.datasetId === selectedDatasetId);
 
             if (!selectedDatasetMetadata) {
-                console.error("Could not find metadata in availableDatasets for:", selectedDatasetId);
-                console.error("Available datasets:", availableDatasets);
-                setJobError("Internal Error: Could not find selected dataset's metadata. Please refresh or re-select.");
+                console.error("Could not find metadata in available workspaces for:", selectedDatasetId);
+                console.error("Available Workspace:", availableDatasets);
+                setJobError("Internal Error: Could not find selected workspace's metadata. Please refresh or re-select.");
                 setIsRunningJob(false);
                 return;
             }
@@ -1286,7 +1286,7 @@ useEffect(() => {
 
             if (datasets.length > 0) {
                 setSelectedDatasetId(datasets[0].datasetId);
-                toast({ title: `Selected initial dataset: ${datasets[0].datasetId}`, variant: "default", duration: 2000});
+                toast({ title: `Selected initial workspace: ${datasets[0].datasetId}`, variant: "default", duration: 2000});
             } else {
                 setDatasetError("Create a workspace.");
                 setTables([]);
@@ -1294,9 +1294,9 @@ useEffect(() => {
                 setSchemaData(null);
             }
         } catch (error: any) {
-            console.error("Error fetching datasets:", error);
+            console.error("Error fetching workspace:", error);
             const message = getErrorMessage(error);
-            setDatasetError(`Failed to load datasets: ${message}`);
+            setDatasetError(`Failed to load workspace: ${message}`);
             setTables([]);
             setFilteredTables([]);
             setSchemaData(null);
@@ -1309,7 +1309,7 @@ useEffect(() => {
 const handleDatasetChange = (newDatasetId: string) => {
     if (newDatasetId && newDatasetId !== selectedDatasetId) {
         // console.log(`Dataset selection changed to: ${newDatasetId}`);
-        toast({title: `Switching to dataset: ${newDatasetId}`, duration: 1500});
+        toast({title: `Switching to workspace: ${newDatasetId}`, duration: 1500});
         setSelectedDatasetId(newDatasetId);
     }
 };
@@ -1648,7 +1648,7 @@ useEffect(() => {
                         <SelectContent>
                             {availableDatasets.length === 0 && !loadingDatasets ? (
                                 <SelectItem value="no-datasets" disabled className="text-xs">
-                                    No datasets found
+                                    No workspace found
                                 </SelectItem>
                             ) : (
                                 availableDatasets.map(ds => (
@@ -1948,7 +1948,7 @@ useEffect(() => {
         );
     };
     const renderTablePreview = () => { /* ... NO CHANGES ... */
-        if (!selectedDatasetId) return (<div className="flex items-center justify-center h-full text-muted-foreground p-6"><div className="text-center"><Database className="h-12 w-12 mx-auto mb-4 opacity-20"/><h3 className="text-lg font-medium mb-2">No Dataset Selected</h3><p className="text-sm">Select a workspace from the sidebar.</p></div></div>);
+        if (!selectedDatasetId) return (<div className="flex items-center justify-center h-full text-muted-foreground p-6"><div className="text-center"><Database className="h-12 w-12 mx-auto mb-4 opacity-20"/><h3 className="text-lg font-medium mb-2">No Workspace Selected</h3><p className="text-sm">Select a workspace from the sidebar.</p></div></div>);
         // ... rest of the existing function
         if(!selectedTableId)return(<div className="flex items-center justify-center h-full text-muted-foreground"><div className="text-center p-6"><Database className="h-12 w-12 mx-auto mb-4 opacity-20"/><h3 className="text-lg font-medium mb-2">No Table Selected</h3><p className="text-sm">Select a table from the sidebar.</p></div></div>);
         if(loadingPreview)return(<div className="flex justify-center items-center h-full"><div className="text-center"><Loader2 className="h-8 w-8 animate-spin mx-auto mb-3 text-primary"/><p className="text-sm text-muted-foreground">Loading preview...</p></div></div>);
