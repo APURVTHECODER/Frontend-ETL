@@ -3388,7 +3388,7 @@ onFocus={() => {
                         <Button
                             variant="outline"
                             size="icon"
-                            className="fixed bottom-4 left-16 z-50 rounded-full h-12 w-12 shadow-lg" // Adjust position
+                            className="fixed bottom-4 left-20 z-50 rounded-full h-12 w-12 shadow-lg" 
                             onClick={() => handleOpenFeedbackModal('general')}
                         >
                            <MessageSquarePlus className="h-6 w-6" />
