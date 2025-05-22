@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef, useCallback, useMemo } from "react"; // Added useMemo
+import Joyride, { Step, CallBackProps, STATUS, EVENTS } from 'react-joyride'; // +++ Joyride Import +++
 import { Button, buttonVariants } from "@/components/ui/button";
 import Editor from '@monaco-editor/react'
 import { Input } from "@/components/ui/input";
@@ -26,9 +27,9 @@ import {
     LineChart as LineChartIcon, PieChart as PieChartIcon, Dot , Trash2 ,History,Copy,
     ListFilter, // Added Filter icon
     MessageSquare,X,
-    FileSpreadsheet, Clock ,Sparkles , LightbulbIcon , AlertCircle , Play ,Settings2,Check,ChevronsUpDown,CheckCheck
+    FileSpreadsheet, Clock ,Sparkles , LightbulbIcon , AlertCircle , Play ,Settings2,Check,ChevronsUpDown,CheckCheck,    // ... existing icons ...
 } from "lucide-react";
-import { useAuth } from '@/contexts/AuthContext';
+// import { useAuth } from '@/contexts/AuthContext';
 import {
     Command,
     CommandEmpty,
@@ -129,8 +130,11 @@ type ActiveVisualizationConfig = {
     rationale?: string;
   };
 const BigQueryTableViewer: React.FC = () => {
-      const { userProfile,  } = useAuth();
-      const isAdmin = userProfile?.role === 'admin';
+        // +++ Joyride State for BigQueryTableViewer Tour +++
+    const [runViewerTour, setRunViewerTour] = useState<boolean>(false);
+    const VIEWER_TOUR_VERSION = 'bigQueryTableViewerTour_v2'; // Increment if you change the tour significantly
+    //   const { userProfile,  } = useAuth();
+    //   const isAdmin = userProfile?.role === 'admin';
     const getErrorMessage = useCallback((error: any): string => { 
         {
             const d=error.response?.data; if(d && typeof d==='object' && 'detail' in d)return String(d.detail);
@@ -257,6 +261,181 @@ const BigQueryTableViewer: React.FC = () => {
     //     return Array.from(tables);
     // }, []);
 // Inside BigQueryTableViewer component
+    // Effect to start the tour on first visit & when data is loaded
+    useEffect(() => {
+        const hasSeenViewerTour = localStorage.getItem(VIEWER_TOUR_VERSION);
+        console.log(`[ViewerTour Effect] loadingDatasets: ${loadingDatasets}, hasSeenViewerTour: ${hasSeenViewerTour}, selectedDatasetId: ${selectedDatasetId}`);
+
+        // Tour starts if:
+        // 1. Not seen before.
+        // 2. Initial datasets have loaded (or failed to load, indicating page is somewhat ready).
+        // 3. A dataset is selected (many UI elements depend on this).
+        if (!hasSeenViewerTour && !loadingDatasets && selectedDatasetId) {
+            // Polling for critical elements to ensure they are in the DOM
+            let attempts = 0;
+            const maxAttempts = 15; // Try for ~7.5 seconds
+            const intervalId = setInterval(() => {
+                attempts++;
+                const workspaceSelectEl = document.getElementById('tour-viewer-workspace-select-trigger'); // Specific trigger
+                const tablesTabEl = document.getElementById('tour-sidebar-tab-tables');
+                const aiPromptEl = document.getElementById('tour-nl-prompt-input');
+
+                console.log(`[ViewerTour Polling Attempt ${attempts}] Workspace: ${!!workspaceSelectEl}, TablesTab: ${!!tablesTabEl}, AIPrompt: ${!!aiPromptEl}`);
+
+                if (workspaceSelectEl && tablesTabEl && aiPromptEl) {
+                    console.log('[ViewerTour Polling] Critical initial elements found! Starting tour.');
+                    // Short delay for styling/rendering completion
+                    setTimeout(() => setRunViewerTour(true), 700);
+                    clearInterval(intervalId); // Stop polling
+                    // No need to return clearTimeout from here as interval is cleared
+                } else if (attempts >= maxAttempts) {
+                    console.warn('[ViewerTour Polling] Max attempts reached. Key elements for tour not found.');
+                    clearInterval(intervalId);
+                }
+            }, 500);
+            return () => {
+                console.log('[ViewerTour Effect Cleanup] Clearing polling interval if active.');
+                clearInterval(intervalId);
+            }
+        } else {
+             if (hasSeenViewerTour) console.log('[ViewerTour Effect] Tour already seen.');
+             if (loadingDatasets) console.log('[ViewerTour Effect] Datasets still loading.');
+             if (!selectedDatasetId) console.log('[ViewerTour Effect] No dataset selected yet.');
+        }
+    }, [loadingDatasets, selectedDatasetId, VIEWER_TOUR_VERSION]); // Dependencies
+
+    const viewerTourSteps = useMemo((): Step[] => {
+        const steps: Step[] = [
+            {
+                target: '#tour-viewer-workspace-select-trigger',
+                content: (
+                    <div>
+                        <h4>Welcome to the Data Explorer!</h4>
+                        <p>This is where you interact with your data. First, ensure you have the correct <strong>Workspace</strong> selected here.</p>
+                    </div>
+                ),
+                placement: 'bottom-start',
+                disableBeacon: true,
+            },
+            {
+                target: '#tour-sidebar-tab-tables',
+                content: <p>Explore your available <strong>Tables</strong> in the selected workspace here. Click a table to see its preview and auto-populate a basic query in the editor.</p>,
+                placement: 'right',
+            },
+            {
+                target: '#tour-ai-assist-section', // Target the whole AI section first
+                content: <p>Use the <strong>AI Assist</strong> section to generate SQL from natural language. Type your question about the data in the prompt box.</p>,
+                placement: 'bottom',
+            },
+            {
+                target: '#tour-ai-mode-select-trigger', // Target the AI Mode SelectTrigger
+                content: (
+                    <div>
+                        <p>Choose an <strong>AI Mode</strong>:</p>
+                        <ul className="list-disc list-inside mt-1 text-xs">
+                            <li><strong>AUTO:</strong> The AI considers all tables in the selected workspace.</li>
+                            <li><strong>SEMI-AUTO:</strong> You can select specific tables (and even columns) for the AI to focus on, which is great for large workspaces.</li>
+                        </ul>
+                    </div>
+                ),
+
+            },
+
+            {
+                target: '#tour-nl-prompt-input',
+                content: <p>Type your data question here (e.g., "show total sales per product category last month").</p>,
+                placement: 'bottom',
+            },
+            {
+                target: '#tour-generate-sql-button',
+                content: <p>Click <strong>Generate SQL</strong>. The AI will create a query based on your prompt and mode selection.</p>,
+                placement: 'bottom',
+            },
+            {
+                target: '#tour-sql-editor-wrapper',
+                content: <p>The generated SQL (or your manually written query) appears here. You can edit it directly.</p>,
+                placement: 'bottom',
+            },
+            {
+                target: '#tour-run-query-button-main', // Use the specific ID for the main run button
+                content: <p>Click <strong>Run Query</strong> to execute the SQL and see the results below.</p>,
+                placement: 'bottom',
+                // Add a delay or check if jobResults exist before proceeding to next step
+                // This is tricky because the next steps depend on results.
+                // For a simple tour, we assume user will run a query.
+            },
+            {
+                target: '#tour-output-tabs-list',
+                content: <p>Query results and related features appear in these tabs.</p>,
+                placement: 'top',
+            },
+            {
+                target: '#tour-output-tab-results',
+                content: <p>The <strong>Results</strong> tab displays the data from your query. You can also find filter controls here if applicable.</p>,
+                placement: 'top',
+                // Condition: Only show if jobResults exist? Joyride should skip if target not found.
+            },
+            {
+                target: '#tour-output-tab-visualize',
+                content: <p>The <strong>Visualize</strong> tab offers chart suggestions based on your query results. Click a suggestion to view the chart.</p>,
+                placement: 'top',
+            },
+            {
+                target: '#tour-output-tab-ai-summary', // Ensure this ID is on your AI Summary TabsTrigger
+                content: <p>Get an <strong>AI-generated summary</strong> of your query results here.</p>,
+                placement: 'top',
+            },
+            // {
+            //     target: '#tour-excel-download-button-results',
+            //     content: <p>Download your query data (and active chart, if any) as an <strong>Excel Report</strong>.</p>,
+            //     placement: 'top-start',
+            // },
+            {
+                target: '#tour-sidebar-tab-history',
+                content: <p>Review your <strong>Query History</strong> here. Click an item to reload the SQL into the editor.</p>,
+                placement: 'right',
+            },
+            {
+                target: '#tour-chatbot-toggle',
+                content: <p>Need more help or have quick questions? Open our <strong>AI Chat Assistant</strong> anytime!</p>,
+                placement: 'top-end',
+            }
+        ];
+        return steps;
+    }, [aiMode]); // Re-calculate steps if aiMode changes for conditional SEMI_AUTO steps
+
+    const handleViewerJoyrideCallback = (data: CallBackProps) => {
+        // ... (existing callback logic - ensure it handles TARGET_NOT_FOUND gracefully)
+        const { status, type, action, index, step, lifecycle } = data;
+        const finishedStatuses: string[] = [STATUS.FINISHED, STATUS.SKIPPED];
+
+        console.log('[ViewerTour Callback]', { status, type, action, index, lifecycle, target: step?.target });
+
+        if (type === EVENTS.TARGET_NOT_FOUND) {
+            console.error(`[ViewerTour Error] Target not found for step ${index}: ${step.target}`);
+            // If a target isn't found, you might want to automatically skip to the next step or end the tour.
+            // For now, Joyride might just show the tooltip in the center.
+            // To skip: if (joyrideRef.current) joyrideRef.current.next(); // Needs a ref to Joyride component
+        }
+        if (type === EVENTS.STEP_AFTER && step.target === '#tour-run-query-button-main') {
+            // After the "Run Query" step, you might want to pause the tour
+            // and wait for results before proceeding to steps about results/charts.
+            // This requires more complex logic, perhaps by setting runViewerTour to false
+            // and then re-enabling it once jobResults appear.
+            // For a simpler tour, we assume the user runs a query and elements become visible.
+            console.log("After 'Run Query' step. User should now see results tabs.");
+        }
+
+
+        if (action === 'close' || finishedStatuses.includes(status) || type === 'tour:end') {
+            console.log('[ViewerTour Callback] Tour ending or closing.');
+            setRunViewerTour(false);
+            if (status === STATUS.FINISHED || status === STATUS.SKIPPED) {
+                console.log('[ViewerTour Callback] Marking viewer tour as seen.');
+                localStorage.setItem(VIEWER_TOUR_VERSION, 'true');
+            }
+        }
+    };
 
 // ... other functions like fetchTables, submitSqlJob etc ...
 // +++ MODIFICATION START: Derive available columns for SEMI_AUTO mode +++
@@ -298,7 +477,7 @@ const fetchPromptSuggestions = useCallback(async (currentPrompt: string) => {
         return;
     }
 
-    console.log("Fetching suggestions for:", currentPrompt);
+    // console.log("Fetching suggestions for:", currentPrompt);
     setIsLoadingSuggestions(true);
     // Keep suggestions visible while loading new ones, maybe show loader inside
     // setShowSuggestions(false); // Optionally hide immediately
@@ -328,7 +507,7 @@ const fetchPromptSuggestions = useCallback(async (currentPrompt: string) => {
 const fetchSchema = useCallback(async () => {
     // +++ Refined Guard Clause (Similar to fetchTables) +++
     if (!fullDatasetId || !fullDatasetId.includes('.')) {
-        console.warn(`Skipping fetchSchema: Invalid or empty fullDatasetId ('${fullDatasetId}')`);
+        // console.warn(`Skipping fetchSchema: Invalid or empty fullDatasetId ('${fullDatasetId}')`);
         setSchemaData(null);
         setLoadingSchema(false);
         setSchemaError(""); // Clear schema error if skipping
@@ -336,13 +515,13 @@ const fetchSchema = useCallback(async () => {
     }
     // +++ End Refined Guard Clause +++
 
-    console.log(`Fetching schema for dataset: ${fullDatasetId}`);
+    // console.log(`Fetching schema for dataset: ${fullDatasetId}`);
     setLoadingSchema(true);
     setSchemaError("");
     setSchemaData(null);
     try {
         const url = `/api/bigquery/schema?dataset_id=${encodeURIComponent(fullDatasetId)}`;
-        console.log(`Calling Schema API: ${url}`); // Log the exact URL
+        // console.log(`Calling Schema API: ${url}`); // Log the exact URL
         const r = await axiosInstance.get<SchemaResponse>(url);
         setSchemaData(r.data);
     } catch(e){
@@ -404,7 +583,7 @@ const handleDeleteTable = useCallback(async (datasetIdToDeleteFrom: string, tabl
      //     return;
      // }
 
-    console.log(`Attempting to delete table: ${tableIdToDelete} from dataset: ${datasetIdToDeleteFrom}`);
+    // console.log(`Attempting to delete table: ${tableIdToDelete} from dataset: ${datasetIdToDeleteFrom}`);
     // Consider adding a loading state for the specific table being deleted
     try {
         await axiosInstance.delete(`/api/bigquery/datasets/${encodeURIComponent(datasetIdToDeleteFrom)}/tables/${encodeURIComponent(tableIdToDelete)}`);
@@ -475,7 +654,13 @@ useEffect(() => {
 
     const formatBytes = useCallback((bytes: number | null | undefined): string => { if(bytes==null||bytes===undefined||bytes===0)return"0 Bytes"; const k=1024,s=["Bytes","KB","MB","GB","TB"],i=Math.floor(Math.log(bytes)/Math.log(k)); return parseFloat((bytes/Math.pow(k,i)).toFixed(2))+" "+s[i]; }, []);
     const formatDate = useCallback((dateString: string | null | undefined): string => { if(!dateString)return"N/A"; try{return new Date(dateString).toLocaleString();}catch(e){return dateString;} }, []);
-    const copyToClipboard = useCallback((text: string, message: string = "Copied!"): void => { navigator.clipboard.writeText(text).then(()=>{console.log(message); /* TODO: Add toast */}).catch(err=>{console.error("Copy failed:",err);}); }, []);
+    const copyToClipboard = useCallback((text: string, _message: string = "Copied!"): void => { navigator.clipboard.writeText(text).then(()=>{
+        
+        
+        // console.log(message); 
+        
+        
+        /* TODO: Add toast */}).catch(err=>{console.error("Copy failed:",err);}); }, []);
     const toggleFavorite = useCallback((tableId: string): void => setFavoriteTables(prev => prev.includes(tableId)?prev.filter(id=>id!==tableId):[...prev,tableId]), []);
     const addToHistory = useCallback((newItem: Omit<QueryHistoryItem, 'id' | 'timestamp'>): void => {
         const ts = new Date().toISOString();
@@ -491,7 +676,7 @@ useEffect(() => {
     
 
     const fetchJobResults = useCallback(async (currentJobId: string, loc: string, pageToken?: string | null) => {
-        console.log(`Fetching results job ${currentJobId}, page: ${pageToken ? 'next' : 'first'}`);
+        // console.log(`Fetching results job ${currentJobId}, page: ${pageToken ? 'next' : 'first'}`);
         setLoadingResults(true);
         setResultsError("");
         try {
@@ -550,7 +735,7 @@ useEffect(() => {
             return jobResults.rows; // Return original rows if no filters are active
         }
 
-        console.log("Applying filters:", activeFilters);
+        // console.log("Applying filters:", activeFilters);
         let data = [...jobResults.rows];
 
         Object.entries(activeFilters).forEach(([columnName, filterValue]) => {
@@ -606,14 +791,18 @@ useEffect(() => {
                 }
             });
         });
-        console.log("Filtered data count:", data.length);
+        // console.log("Filtered data count:", data.length);
         return data;
     }, [jobResults?.rows, activeFilters]);
     
     
 
     // fetchJobStatus: Mostly unchanged, triggers fetchJobResults
-    const fetchJobStatus = useCallback(async (currentJobId: string, loc: string) => { console.log(`Polling job: ${currentJobId}`); setJobError(""); try { const r=await axiosInstance.get<JobStatusResponse>(`/api/bigquery/jobs/${currentJobId}?location=${loc}`); const d=r.data; setJobStatus(d); if(d.state==='DONE'){ stopPolling(); setIsRunningJob(false); if(d.error_result){ const errMsg=`Job failed: ${d.error_result.message||d.error_result.reason||'Unknown'}`; setJobError(errMsg); setJobResults(null); addToHistory({sql,success:false}); } else { setJobError(""); setCurrentOutputTab("results"); // Switch to results tab on SUCCESSFUL completion
+    const fetchJobStatus = useCallback(async (currentJobId: string, loc: string) => { 
+        
+        // console.log(`Polling job: ${currentJobId}`);
+        
+        setJobError(""); try { const r=await axiosInstance.get<JobStatusResponse>(`/api/bigquery/jobs/${currentJobId}?location=${loc}`); const d=r.data; setJobStatus(d); if(d.state==='DONE'){ stopPolling(); setIsRunningJob(false); if(d.error_result){ const errMsg=`Job failed: ${d.error_result.message||d.error_result.reason||'Unknown'}`; setJobError(errMsg); setJobResults(null); addToHistory({sql,success:false}); } else { setJobError(""); setCurrentOutputTab("results"); // Switch to results tab on SUCCESSFUL completion
                  if(d.statement_type==='SELECT'||d.statement_type===undefined){ await fetchJobResults(currentJobId,loc); // Fetch first page
                 } else { setJobResults({rows:[],total_rows_in_result_set:d.num_dml_affected_rows??0,schema:[]}); addToHistory({sql,success:true,rowCount:d.num_dml_affected_rows}); } } } else { setIsRunningJob(true); } } catch (e:any){ console.error("Error fetching status:",e); const m=getErrorMessage(e); if(e.response?.status===404){ setJobError(`Job ${currentJobId} not found.`); stopPolling(); setIsRunningJob(false); addToHistory({sql,success:false}); } else { setJobError(`Fetch status failed: ${m}`); } } }, [stopPolling, fetchJobResults, sql, addToHistory, getErrorMessage]); // Added setCurrentOutputTab dependency indirectly via fetchJobResults
 
@@ -626,7 +815,7 @@ useEffect(() => {
 // ActiveVisualizationConfig, BackendChartConfig, RowData) are correctly defined.
 
 const handleExcelDownload = useCallback(async () => {
-    console.log("[DEBUG] handleExcelDownload: Entry point");
+    // console.log("[DEBUG] handleExcelDownload: Entry point");
 
     if (!jobId || !sql || !jobLocation) {
         console.error("[DEBUG] handleExcelDownload: Missing Job ID, SQL, or Location for download.");
@@ -643,17 +832,17 @@ const handleExcelDownload = useCallback(async () => {
     let dataUrl: string | null = null; 
 
     // --- Log states BEFORE the chart capture condition ---
-    console.log("[DEBUG] handleExcelDownload: Before chart capture check:");
-    console.log(`[DEBUG]   activeVisualization:`, activeVisualization ? JSON.stringify(activeVisualization) : 'null');
-    console.log(`[DEBUG]   chartContainerRef.current exists:`, !!chartContainerRef.current);
-    console.log(`[DEBUG]   currentOutputTab:`, currentOutputTab);
-    console.log(`[DEBUG]   filteredData.length:`, filteredData.length);
+    // console.log("[DEBUG] handleExcelDownload: Before chart capture check:");
+    // console.log(`[DEBUG]   activeVisualization:`, activeVisualization ? JSON.stringify(activeVisualization) : 'null');
+    // console.log(`[DEBUG]   chartContainerRef.current exists:`, !!chartContainerRef.current);
+    // console.log(`[DEBUG]   currentOutputTab:`, currentOutputTab);
+    // console.log(`[DEBUG]   filteredData.length:`, filteredData.length);
 
     // --- Capture chart image if a visualization is active and rendered ON THE VISUALIZE TAB ---
     if (activeVisualization && chartContainerRef.current && currentOutputTab === 'visualize' && filteredData.length > 0) {
-        console.log("[DEBUG] handleExcelDownload: ALL conditions for chart capture MET. Attempting image capture...");
+        // console.log("[DEBUG] handleExcelDownload: ALL conditions for chart capture MET. Attempting image capture...");
         try {
-            console.log("[DEBUG] htmlToImage: About to call toPng on ref:", chartContainerRef.current);
+            // console.log("[DEBUG] htmlToImage: About to call toPng on ref:", chartContainerRef.current);
             dataUrl = await htmlToImage.toPng(chartContainerRef.current, { 
                 quality: 0.95, 
                 pixelRatio: 1.5,
@@ -661,13 +850,13 @@ const handleExcelDownload = useCallback(async () => {
                 // are causing issues, though it shouldn't be if chartContainerRef only wraps the chart.
                 // filter: (node) => { ... } 
             });
-            console.log("[DEBUG] htmlToImage: toPng call completed. dataUrl (first 100 chars):", dataUrl ? dataUrl.substring(0, 100) : "null or undefined");
+            // console.log("[DEBUG] htmlToImage: toPng call completed. dataUrl (first 100 chars):", dataUrl ? dataUrl.substring(0, 100) : "null or undefined");
 
             if (dataUrl && dataUrl.includes(',')) {
                 chartImageBase64 = dataUrl.split(',')[1];
-                console.log("[DEBUG] htmlToImage: Split successful. chartImageBase64 is SET (length:", chartImageBase64?.length, ").");
+                // console.log("[DEBUG] htmlToImage: Split successful. chartImageBase64 is SET (length:", chartImageBase64?.length, ").");
             } else {
-                console.warn("[DEBUG] htmlToImage: dataUrl was null, undefined, or did not contain ','. dataUrl:", dataUrl);
+                // console.warn("[DEBUG] htmlToImage: dataUrl was null, undefined, or did not contain ','. dataUrl:", dataUrl);
             }
             
             // Map frontend ActiveVisualizationConfig to BackendChartConfig
@@ -684,7 +873,7 @@ const handleExcelDownload = useCallback(async () => {
 
         } catch (imgError: any) {
             console.error("[DEBUG] handleExcelDownload: FAILED to capture chart image (htmlToImage.toPng threw an error):", imgError);
-            console.log("[DEBUG] htmlToImage: Value of dataUrl in catch block:", dataUrl); // Log dataUrl state in catch
+            // console.log("[DEBUG] htmlToImage: Value of dataUrl in catch block:", dataUrl); // Log dataUrl state in catch
             if (imgError && imgError.message) {
                 console.error("[DEBUG]   Error message:", imgError.message);
             }
@@ -695,7 +884,7 @@ const handleExcelDownload = useCallback(async () => {
             // chartImageBase64, backendChartConfigPayload, chartDataForPayload will remain null or their initial values
         }
     } else {
-        console.warn("[DEBUG] handleExcelDownload: ONE OR MORE conditions for chart capture NOT MET (activeViz, ref, currentTab, or data).");
+        // console.warn("[DEBUG] handleExcelDownload: ONE OR MORE conditions for chart capture NOT MET (activeViz, ref, currentTab, or data).");
         if (!activeVisualization) console.warn("[DEBUG]   Reason: activeVisualization is falsy.");
         if (!chartContainerRef.current) console.warn("[DEBUG]   Reason: chartContainerRef.current is falsy/null (Chart component might not be mounted/visible if not on Visualize tab).");
         if (currentOutputTab !== 'visualize') console.warn(`[DEBUG]   Reason: currentOutputTab is '${currentOutputTab}', not 'visualize'.`);
@@ -712,10 +901,10 @@ const handleExcelDownload = useCallback(async () => {
             chart_data: chartDataForPayload,
         };
         
-        console.log("[DEBUG] FINAL PAYLOAD CHECK: chart_image_base64 is " + (chartImageBase64 ? `PRESENT (length: ${chartImageBase64.length})` : "NULL or EMPTY"));
-        console.log("[DEBUG] FINAL PAYLOAD CHECK: chart_config is " + (backendChartConfigPayload ? JSON.stringify(backendChartConfigPayload) : "NULL"));
+        // console.log("[DEBUG] FINAL PAYLOAD CHECK: chart_image_base64 is " + (chartImageBase64 ? `PRESENT (length: ${chartImageBase64.length})` : "NULL or EMPTY"));
+        // console.log("[DEBUG] FINAL PAYLOAD CHECK: chart_config is " + (backendChartConfigPayload ? JSON.stringify(backendChartConfigPayload) : "NULL"));
         
-        console.log("[DEBUG] Requesting Excel export with payload (actual values):", payload );
+        // console.log("[DEBUG] Requesting Excel export with payload (actual values):", payload );
 
         const response = await axiosInstance.post('/api/export/query-to-excel', payload, {
             responseType: 'blob',
@@ -738,7 +927,7 @@ const handleExcelDownload = useCallback(async () => {
         toast({ variant: "destructive", title: "Download Failed", description: errorMessage });
     } finally {
         setIsDownloadingExcel(false);
-        console.log("[DEBUG] handleExcelDownload: Exiting function.");
+        // console.log("[DEBUG] handleExcelDownload: Exiting function.");
     }
 }, [
     jobId, sql, jobLocation, toast, getErrorMessage, setIsDownloadingExcel,
@@ -760,7 +949,7 @@ const handleExcelDownload = useCallback(async () => {
              return;
         }
 
-        console.log(`Submitting SQL for dataset ${fullDatasetId}:`, sql);
+        // console.log(`Submitting SQL for dataset ${fullDatasetId}:`, sql);
         stopPolling();
         setJobId(null);
         setJobLocation(null);
@@ -800,12 +989,12 @@ const handleExcelDownload = useCallback(async () => {
               location: selectedDatasetMetadata.location,
             };
             // +++ MODIFICATION END +++
-            console.log("Job Payload:", payload);
+            // console.log("Job Payload:", payload);
 
             // Fire the request
             const r = await axiosInstance.post<JobSubmitResponse>("/api/bigquery/jobs", payload);
             const { job_id, location: jobLoc, state } = r.data;
-            console.log("Job Submitted:", r.data);
+            // console.log("Job Submitted:", r.data);
             setJobId(job_id);
             setJobLocation(jobLoc || selectedDatasetMetadata.location);
             setJobStatus({ job_id, location: jobLoc || selectedDatasetMetadata.location, state: state as any });
@@ -842,7 +1031,7 @@ const handleExcelDownload = useCallback(async () => {
         // Ensure fullDatasetId is not empty AND contains a dot (basic check for project.dataset format)
         // This prevents calls when selectedDatasetId is set but projectId isn't ready, or vice versa.
         if (!fullDatasetId || !fullDatasetId.includes('.')) {
-            console.warn(`Skipping fetchTables: Invalid or empty fullDatasetId ('${fullDatasetId}')`);
+            // console.warn(`Skipping fetchTables: Invalid or empty fullDatasetId ('${fullDatasetId}')`);
             setTables([]);
             setFilteredTables([]);
             setLoadingTables(false);
@@ -852,14 +1041,14 @@ const handleExcelDownload = useCallback(async () => {
         }
         // +++ End Refined Guard Clause +++
 
-        console.log(`Fetching tables for dataset: ${fullDatasetId}`); // Log the ID being used
+        // console.log(`Fetching tables for dataset: ${fullDatasetId}`); // Log the ID being used
         setLoadingTables(true);
         setListTablesError("");
         setTables([]); // Clear previous tables
         setFilteredTables([]);
         try {
             const url = `/api/bigquery/tables?dataset_id=${encodeURIComponent(fullDatasetId)}`;
-            console.log(`Calling Table API: ${url}`); // Log the exact URL
+            // console.log(`Calling Table API: ${url}`); // Log the exact URL
             const r = await axiosInstance.get<TableInfo[]>(url);
             setTables(r.data);
             setFilteredTables(r.data);
@@ -1049,9 +1238,9 @@ const handleGenerateSql = useCallback(async () => {
             if (selectedAiColumns.size > 0) {
                 payload.selected_columns = Array.from(selectedAiColumns);
             }
-            console.log("Sending SEMI_AUTO payload:", payload);
+            // console.log("Sending SEMI_AUTO payload:", payload);
         } else {
-             console.log("Sending AUTO payload:", payload);
+            //  console.log("Sending AUTO payload:", payload);
         }
 
         const r = await axiosInstance.post<NLQueryResponse>('/api/bigquery/nl2sql', payload);
@@ -1083,7 +1272,7 @@ const handleGenerateSql = useCallback(async () => {
 // Add this useEffect for initial dataset loading
 useEffect(() => {
     const fetchInitialDatasets = async () => {
-        console.log("Fetching initial list of datasets...");
+        // console.log("Fetching initial list of datasets...");
         setLoadingDatasets(true);
         setDatasetError(null);
         setAvailableDatasets([]);
@@ -1099,7 +1288,7 @@ useEffect(() => {
                 setSelectedDatasetId(datasets[0].datasetId);
                 toast({ title: `Selected initial dataset: ${datasets[0].datasetId}`, variant: "default", duration: 2000});
             } else {
-                setDatasetError("No accessible datasets found.");
+                setDatasetError("Create a workspace.");
                 setTables([]);
                 setFilteredTables([]);
                 setSchemaData(null);
@@ -1119,7 +1308,7 @@ useEffect(() => {
 }, [getErrorMessage, toast]);
 const handleDatasetChange = (newDatasetId: string) => {
     if (newDatasetId && newDatasetId !== selectedDatasetId) {
-        console.log(`Dataset selection changed to: ${newDatasetId}`);
+        // console.log(`Dataset selection changed to: ${newDatasetId}`);
         toast({title: `Switching to dataset: ${newDatasetId}`, duration: 1500});
         setSelectedDatasetId(newDatasetId);
     }
@@ -1164,7 +1353,7 @@ useEffect(() => {
             const generatedFilters: FilterConfig[] = [];
             const MAX_CATEGORICAL_OPTIONS = 100; // Limit unique values for performance
 
-            console.log("Generating filters from results...");
+            // console.log("Generating filters from results...");
 
             schema.forEach(field => {
                 let filterType: FilterType | null = null;
@@ -1250,7 +1439,7 @@ useEffect(() => {
                 }
             });
 
-            console.log("Available filters generated:", generatedFilters);
+            // console.log("Available filters generated:", generatedFilters);
             setAvailableFilters(generatedFilters);
             setActiveFilters({}); // Reset active filters when results/schema change
 
@@ -1264,7 +1453,7 @@ useEffect(() => {
 
     // --- Filter Handlers ---
     const handleFilterChange = useCallback((columnName: string, value: ActiveFilterValue | null) => {
-        console.log(`Filter change: ${columnName}`, value);
+        // console.log(`Filter change: ${columnName}`, value);
         setActiveFilters(prev => {
             const newState = { ...prev };
             if (value === null ||
@@ -1284,13 +1473,18 @@ useEffect(() => {
     }, []);
 
     const handleClearAllFilters = useCallback(() => {
-        console.log("Clearing all filters");
+        // console.log("Clearing all filters");
         setActiveFilters({});
         // Visualization validity check will happen in the useEffect hook.
     }, []);
 
     // --- Existing Effects ---
-    useEffect(() => { if(jobId&&jobLocation&&isRunningJob&&!pollingIntervalRef.current){ fetchJobStatus(jobId,jobLocation); pollingIntervalRef.current=setInterval(()=>{fetchJobStatus(jobId,jobLocation);},POLLING_INTERVAL_MS); console.log("Polling started."); } return()=>{stopPolling();}; }, [jobId,jobLocation,isRunningJob,fetchJobStatus,stopPolling]);
+    useEffect(() => { if(jobId&&jobLocation&&isRunningJob&&!pollingIntervalRef.current){ fetchJobStatus(jobId,jobLocation); pollingIntervalRef.current=setInterval(()=>{fetchJobStatus(jobId,jobLocation);},POLLING_INTERVAL_MS); 
+    
+    
+    // console.log("Polling started."); 
+
+} return()=>{stopPolling();}; }, [jobId,jobLocation,isRunningJob,fetchJobStatus,stopPolling]);
     useEffect(() => { fetchTables(); fetchSchema(); }, [fetchTables, fetchSchema]);
     useEffect(() => { const lq=tableSearchQuery.toLowerCase(); setFilteredTables(tables.filter(t=>t.tableId.toLowerCase().includes(lq))); }, [tableSearchQuery, tables]);
     // Modify history effect to use original row count if available
@@ -1299,7 +1493,7 @@ useEffect(() => {
     // Add history item when a job finishes successfully
     // Check jobStatus directly for the 'DONE' state without error
     if (jobId && jobStatus?.state === 'DONE' && !jobStatus.error_result && !isRunningJob) {
-        console.log("Attempting to add successful query to history:", jobId, jobStatus); // Debug log
+        // console.log("Attempting to add successful query to history:", jobId, jobStatus); // Debug log
 
         let durationMs: number | undefined = undefined;
         if (jobStatus.end_time && jobStatus.start_time) {
@@ -1343,7 +1537,7 @@ useEffect(() => {
     useEffect(() => {
         // --- Trigger AI Features when results are available and job is done ---
         if (jobResults?.schema && jobResults.rows.length > 0 && !isRunningJob && jobStatus?.state === 'DONE' && !jobStatus.error_result) {
-            console.log("Results available, triggering AI features (suggestions & summary)...");
+            // console.log("Results available, triggering AI features (suggestions & summary)...");
 
             // --- Fetch AI Suggestions (Visualization) ---
             const fetchAiSuggestions = async () => {
@@ -1353,7 +1547,8 @@ useEffect(() => {
                 try {
                     const response = await axiosInstance.post<{suggestions: VizSuggestion[], error?: string}>( '/api/bigquery/suggest-visualization', { schema: jobResults.schema, query_sql: sql, result_sample: filteredData.slice(0, 5) });
                     if (response.data.error) { setAiSuggestionError(`AI Viz Error: ${response.data.error}`); return []; }
-                    console.log("AI Suggestions Received:", response.data.suggestions); return response.data.suggestions || [];
+                    // console.log("AI Suggestions Received:", response.data.suggestions); 
+                    return response.data.suggestions || [];
                 } catch (error) { console.error("Error fetching AI suggestions:", error); setAiSuggestionError(`Failed to get AI suggestions: ${getErrorMessage(error)}`); return []; }
                 finally { setLoadingAiSuggestions(false); }
             };
@@ -1370,7 +1565,7 @@ useEffect(() => {
              fetchAiSuggestions().then(aiSuggestions => {
                  const combined = [...ruleBasedSuggestions];
                  aiSuggestions.forEach(aiSugg => { if (!combined.some(rbSugg => rbSugg.chart_type === aiSugg.chart_type && rbSugg.x_axis_column === aiSugg.x_axis_column && rbSugg.y_axis_columns[0] === aiSugg.y_axis_columns[0])) { combined.push({...aiSugg, rationale: aiSugg.rationale ?? `AI suggested ${aiSugg.chart_type} chart.` }); } });
-                 console.log("Final combined suggestions:", combined);
+                //  console.log("Final combined suggestions:", combined);
                  setSuggestedCharts(combined);
              });
 
@@ -1437,7 +1632,7 @@ useEffect(() => {
                 {datasetError && !loadingDatasets && (
                     <Alert variant="destructive" className="text-xs p-2">
                         <Terminal className="h-3 w-3" />
-                        <AlertTitle className="text-xs font-medium">Error</AlertTitle>
+                        <AlertTitle className="text-xs font-medium">No Workspace Found</AlertTitle>
                         <AlertDescription className="text-xs">{datasetError}</AlertDescription>
                     </Alert>
                 )}
@@ -1447,7 +1642,7 @@ useEffect(() => {
                         onValueChange={handleDatasetChange}
                         disabled={loadingTables || loadingSchema || isRunningJob || availableDatasets.length === 0}
                     >
-                        <SelectTrigger id="dataset-select" className="w-full h-8 text-xs">
+                        <SelectTrigger id="tour-viewer-workspace-select-trigger" className="w-full h-8 text-xs">
                             <SelectValue placeholder="Select a workspace..." />
                         </SelectTrigger>
                         <SelectContent>
@@ -1458,7 +1653,7 @@ useEffect(() => {
                             ) : (
                                 availableDatasets.map(ds => (
                                     <SelectItem key={ds.datasetId} value={ds.datasetId} className="text-xs">
-                                        {ds.datasetId} <span className="text-xs text-muted-foreground ml-1">({ds.location})</span>
+                                        {ds.datasetId} 
                                     </SelectItem>
                                 ))
                             )}
@@ -1474,11 +1669,11 @@ useEffect(() => {
                     {selectedDatasetId.toLocaleUpperCase()}
                 </p>
                 <Tabs value={currentSidebarTab} onValueChange={setCurrentSidebarTab} className="flex-grow flex flex-col overflow-hidden">
-                    <TabsList className="grid grid-cols-4 mb-3 h-8 bg-muted flex-shrink-0">
+                    <TabsList id="tour-sidebar-tabs-list" className="grid grid-cols-4 mb-3 h-8 bg-muted flex-shrink-0">
                          {/* Tabs use default theme styles */}
-                        <TabsTrigger value="tables" className="text-xs h-7"><Database className="mr-1 h-3 w-3"/>Tables</TabsTrigger>
-                        <TabsTrigger value="favorites" className="text-xs h-7"><Bookmark className="mr-1 h-3 w-3"/>Favorites</TabsTrigger>
-                        <TabsTrigger value="history" className="text-xs h-7"><History className="mr-1 h-3 w-3"/>History</TabsTrigger>
+                        <TabsTrigger  id="tour-sidebar-tab-tables" value="tables" className="text-xs h-7"><Database className="mr-1 h-3 w-3"/>Tables</TabsTrigger>
+                        <TabsTrigger  value="favorites" className="text-xs h-7"><Bookmark className="mr-1 h-3 w-3"/>Favorites</TabsTrigger>
+                        <TabsTrigger  id="tour-sidebar-tab-history" value="history" className="text-xs h-7"><History className="mr-1 h-3 w-3"/>History</TabsTrigger>
                         <TabsTrigger value="schema" className="text-xs h-7"><ListTree className="mr-1 h-3 w-3"/>Schema</TabsTrigger>
                     </TabsList>
                     <div className="flex-grow overflow-hidden">
@@ -1526,45 +1721,6 @@ useEffect(() => {
       return (
         <li key={t.tableId} className="flex items-center group">
           {/* Table name button */}
-          <button
-            onClick={() => handleTableSelect(t.tableId)}
-            className={`
-              flex-grow px-2 py-1.5 rounded-md text-left truncate text-xs
-              transition-colors duration-150 ease-in-out
-              ${selectedTableId === t.tableId
-                ? 'bg-primary text-primary-foreground font-medium'
-                : 'text-foreground hover:bg-muted'}
-            `}
-          >
-            <div className="flex items-center gap-1.5">
-              <Database
-                className="h-3 w-3 flex-shrink-0 text-muted-foreground group-hover:text-foreground"
-              />
-              <span className="truncate">{t.tableId}</span>
-            </div>
-          </button>
-
-          {/* Favorite toggle */}
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              toggleFavorite(t.tableId);
-            }}
-            className={`
-              ml-1 p-1 rounded-md opacity-0 group-hover:opacity-100 transition-opacity
-              ${isFav
-                ? 'text-yellow-500 dark:text-yellow-400 hover:text-yellow-600 dark:hover:text-yellow-300'
-                : 'text-muted-foreground hover:text-foreground'}
-            `}
-          >
-            <Bookmark
-              className="h-3 w-3"
-              fill={isFav ? 'currentColor' : 'none'}
-            />
-          </button>
-
-          {/* Delete button, only for admins */}
-          {isAdmin && (
             <AlertDialog>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -1612,7 +1768,48 @@ useEffect(() => {
                 </AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>
-          )}
+
+
+                    <button
+            onClick={(e) => {
+              e.stopPropagation();
+              toggleFavorite(t.tableId);
+            }}
+            className={`
+              ml-1 p-1 rounded-md opacity-0 group-hover:opacity-100 transition-opacity
+              ${isFav
+                ? 'text-yellow-500 dark:text-yellow-400 hover:text-yellow-600 dark:hover:text-yellow-300'
+                : 'text-muted-foreground hover:text-foreground'}
+            `}
+          >
+            <Bookmark
+              className="h-3 w-3"
+              fill={isFav ? 'currentColor' : 'none'}
+            />
+          </button>
+          <button
+            onClick={() => handleTableSelect(t.tableId)}
+            className={`
+              flex-grow px-2 py-1.5 rounded-md text-left truncate text-xs
+              transition-colors duration-150 ease-in-out
+              ${selectedTableId === t.tableId
+                ? 'bg-primary text-primary-foreground font-medium'
+                : 'text-foreground hover:bg-muted'}
+            `}
+          >
+            <div className="flex items-center gap-1.5">
+              <Database
+                className="h-3 w-3 flex-shrink-0 text-muted-foreground group-hover:text-foreground"
+              />
+              <span className="truncate">{t.tableId}</span>
+            </div>
+          </button>
+
+          {/* Favorite toggle */}
+
+
+          {/* Delete button, only for admins */}
+
         </li>
       );
     })}
@@ -1792,18 +1989,83 @@ useEffect(() => {
                 </div>
                 {statsDisp}
                 {pageControls}
-                <div className="flex-grow overflow-hidden border rounded-md mt-1 bg-card">
-                    <ScrollArea className="h-full">
-                        <table className="w-full text-xs">
-                            <thead className="sticky top-0 bg-muted z-10">
-                                <tr>{previewColumns.map(c=>(<th key={c} className="px-2 py-1.5 text-left font-medium text-muted-foreground border-b border-r last:border-r-0"><div className="flex items-center cursor-pointer group" onClick={()=>handlePreviewSort(c)}><span className="truncate max-w-32">{c}</span><div className="ml-1 text-muted-foreground/50 group-hover:text-muted-foreground">{previewSortConfig?.key===c?(previewSortConfig.direction==='asc'?<SortAsc className="h-3 w-3"/>:<SortDesc className="h-3 w-3"/>):<ArrowUpDown className="h-3 w-3"/>}</div></div></th>))}</tr>
-                            </thead>
-                            <tbody className="font-mono divide-y divide-border text-foreground">
-                                {previewRows.map((r,i)=>(<tr key={i} className="hover:bg-muted/50">{previewColumns.map(c=>(<td key={c} className="px-2 py-1 max-w-40 truncate border-r last:border-r-0" title={String(r[c]??null)}>{r[c]!=null?String(r[c]):<span className="italic text-muted-foreground">null</span>}</td>))}</tr>))}
-                            </tbody>
-                        </table>
-                    </ScrollArea>
-                </div>
+<div className="flex-grow overflow-hidden border rounded-md mt-1 bg-card">
+
+    <div className="h-full overflow-y-auto">
+
+        <div className="overflow-x-auto">
+
+            <table className="w-full text-xs" style={{ tableLayout: 'auto' }}>
+
+                <thead className="sticky top-0 bg-muted z-10">
+
+                    <tr>
+
+                        {previewColumns.map(c=>(
+
+                            <th key={c} className="px-2 py-1.5 text-left font-medium text-muted-foreground border-b border-r last:border-r-0 whitespace-nowrap">
+
+                                <div className="flex items-center cursor-pointer group" onClick={()=>handlePreviewSort(c)}>
+
+                                    <span>{c}</span>
+
+                                    <div className="ml-1 text-muted-foreground/50 group-hover:text-muted-foreground">
+
+                                        {previewSortConfig?.key===c ? 
+
+                                            (previewSortConfig.direction==='asc' ? 
+
+                                                <SortAsc className="h-3 w-3"/> : 
+
+                                                <SortDesc className="h-3 w-3"/>
+
+                                            ) : 
+
+                                            <ArrowUpDown className="h-3 w-3"/>
+
+                                        }
+
+                                    </div>
+
+                                </div>
+
+                            </th>
+
+                        ))}
+
+                    </tr>
+
+                </thead>
+
+                <tbody className="font-mono divide-y divide-border text-foreground">
+
+                    {previewRows.map((r,i)=>(
+
+                        <tr key={i} className="hover:bg-muted/50">
+
+                            {previewColumns.map(c=>(
+
+                                <td key={c} className="px-2 py-1 border-r last:border-r-0 whitespace-nowrap" title={String(r[c]??null)}>
+
+                                    {r[c]!=null ? String(r[c]) : <span className="italic text-muted-foreground">null</span>}
+
+                                </td>
+
+                            ))}
+
+                        </tr>
+
+                    ))}
+
+                </tbody>
+
+            </table>
+
+        </div>
+
+    </div>
+
+</div>
             </div>
         );
     };
@@ -1995,6 +2257,7 @@ const renderEditorPane = () => {
                     {/* <ThemeToggle /> */}
                 </div>
                 <Button 
+                    id="tour-run-query-button-main"
                     onClick={submitSqlJob} 
                     disabled={isRunningJob || !sql.trim()} 
                     size="sm" 
@@ -2014,7 +2277,7 @@ const renderEditorPane = () => {
 
             {/* AI Assist Section */}
             {showNlSection && (
-                <div className="p-4 bg-background/80 border-b border-border flex-shrink-0 relative transition-all duration-300"> 
+                <div id="tour-ai-assist-section" className="p-4 bg-background/80 border-b border-border flex-shrink-0 relative transition-all duration-300"> 
                     <div className="flex gap-3 items-center">
                         <Select
                             value={aiMode}
@@ -2024,11 +2287,11 @@ const renderEditorPane = () => {
                                     setSelectedAiTables(new Set());
                                     setSelectedAiColumns(new Set());
                                 }
-                                console.log("AI Mode changed to:", value);
+                                // console.log("AI Mode changed to:", value);
                             }}
                             disabled={generatingSql || !selectedDatasetId}
                         >
-                            <SelectTrigger className="w-[140px] h-9 text-xs flex-shrink-0 font-medium bg-background/80 transition-all duration-200 focus:ring-2 focus:ring-primary/20">
+                            <SelectTrigger id="tour-ai-mode-select-trigger" className="w-[140px] h-9 text-xs flex-shrink-0 font-medium bg-background/80 transition-all duration-200 focus:ring-2 focus:ring-primary/20">
                                 <SelectValue placeholder="AI Mode" />
                             </SelectTrigger>
                             <SelectContent className="shadow-lg border-primary/10">
@@ -2074,6 +2337,7 @@ const renderEditorPane = () => {
                         </Select>
                         <div className="relative flex-grow">
                             <Input
+                             id="tour-nl-prompt-input"
                                 ref={promptInputRef}
                                 placeholder={selectedTableId ? "Describe query in plain language..." : "Select table for AI assistance..."}
                                 value={nlPrompt}
@@ -2091,6 +2355,7 @@ const renderEditorPane = () => {
                             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                         </div>
                         <Button 
+                        id="tour-generate-sql-button"
                             onClick={handleGenerateSql} 
                             disabled={!nlPrompt.trim() || generatingSql || !selectedTableId} 
                             size="sm" 
@@ -2168,7 +2433,7 @@ const renderEditorPane = () => {
             )}
 
             {/* Monaco Editor Area */}
-            <div className="flex-grow relative bg-background">
+            <div id="tour-sql-editor-wrapper" className="flex-grow relative bg-background">
                 <Editor
                     language="sql"
                     value={sql}
@@ -2404,10 +2669,11 @@ const renderEditorPane = () => {
                  )}
 
                 <Tabs value={currentOutputTab} onValueChange={setCurrentOutputTab} className="flex-grow flex flex-col overflow-hidden">
-                    <TabsList className="mx-3 mt-2 mb-1 h-8 justify-start bg-muted p-0.5 rounded-md flex-shrink-0">
-                        <TabsTrigger value="data" className="text-xs h-7 px-3 data-[state=active]:bg-background data-[state=active]:shadow-sm rounded-sm"><Table2 className="mr-1.5 h-3.5 w-3.5"/>Preview</TabsTrigger>
-                        <TabsTrigger value="results" className="text-xs h-7 px-3 data-[state=active]:bg-background data-[state=active]:shadow-sm rounded-sm" disabled={!jobId && !jobResults}><ListTree className="mr-1.5 h-3.5 w-3.5"/>Results</TabsTrigger>
+                    <TabsList id="tour-output-tabs-list" className="mx-3 mt-2 mb-1 h-8 justify-start bg-muted p-0.5 rounded-md flex-shrink-0">
+                        <TabsTrigger id="tour-output-tab-data" value="data" className="text-xs h-7 px-3 data-[state=active]:bg-background data-[state=active]:shadow-sm rounded-sm"><Table2 className="mr-1.5 h-3.5 w-3.5"/>Preview</TabsTrigger>
+                        <TabsTrigger id="tour-output-tab-results" value="results" className="text-xs h-7 px-3 data-[state=active]:bg-background data-[state=active]:shadow-sm rounded-sm" disabled={!jobId && !jobResults}><ListTree className="mr-1.5 h-3.5 w-3.5"/>Results</TabsTrigger>
                         <TabsTrigger
+                        id="tour-output-tab-visualize"
                              value="visualize"
                              className="text-xs h-7 px-3 data-[state=active]:bg-background data-[state=active]:shadow-sm rounded-sm"
                              disabled={!hasResultsToShow || !canVisualize || filteredData.length === 0} // Disable if no results or no suggestions/active viz or filtered data is empty
@@ -2416,6 +2682,7 @@ const renderEditorPane = () => {
                         </TabsTrigger>
                          {/* +++ Add AI Summary Tab Trigger +++ */}
                          <TabsTrigger
+                            id="tour-output-tab-ai-summary"
                              value="ai-summary"
                              className="text-xs h-7 px-3 data-[state=active]:bg-background data-[state=active]:shadow-sm rounded-sm"
                              disabled={!hasResultsToShow || !hasJobCompletedSuccessfully || loadingAiSummary} // Disable if no results, job not done, or loading
@@ -2451,7 +2718,7 @@ const renderEditorPane = () => {
     const renderResultsContent = () => {
         // --- Initial checks (Loading, Error, No Original Results) ---
         if (isRunningJob && jobId) return ( <div className="flex justify-center items-center h-full p-4"><div className="text-center"><Loader2 className="h-8 w-8 animate-spin mx-auto mb-3 text-primary"/><p className="text-lg font-medium mb-1 text-foreground">Running Query...</p><p className="text-sm text-muted-foreground">Job ID: {jobId}</p></div></div> );
-        if (jobError) return ( <Alert variant="destructive" className="m-4"><Terminal className="h-4 w-4"/><AlertTitle>Query Error</AlertTitle><AlertDescription><p>{jobError}</p><Button onClick={submitSqlJob} variant="outline" size="sm" className="mt-3 text-xs h-7"><RefreshCw className="mr-1.5 h-3 w-3"/>Try Again</Button></AlertDescription></Alert> );
+        if (jobError) return ( <Alert variant="destructive" className="m-4"><Terminal className="h-4 w-4"/><AlertTitle>Query Error</AlertTitle><AlertDescription><p>{jobError}</p><Button  id="tour-run-query-button"  onClick={submitSqlJob} variant="outline" size="sm" className="mt-3 text-xs h-7"><RefreshCw className="mr-1.5 h-3 w-3"/>Try Again</Button></AlertDescription></Alert> );
         if (loadingResults && !jobResults?.rows) return ( <div className="flex justify-center items-center h-full p-4"><div className="text-center"><Loader2 className="h-8 w-8 animate-spin mx-auto mb-3 text-primary"/><p className="text-sm text-muted-foreground">Loading results...</p></div></div> ); // Show loading only if NO results yet
         if (resultsError) return ( <Alert variant="destructive" className="m-4"><Terminal className="h-4 w-4"/><AlertTitle>Results Error</AlertTitle><AlertDescription>{resultsError}</AlertDescription></Alert> );
         if (!jobResults) return ( <div className="flex items-center justify-center h-full text-muted-foreground p-6"><div className="text-center"><ListTree className="h-12 w-12 mx-auto mb-4 opacity-20"/><h3 className="text-lg font-medium mb-2 text-foreground">No Query Results</h3><p className="text-sm">Run a query using the editor above.</p></div></div> );
@@ -2484,37 +2751,48 @@ const renderEditorPane = () => {
 
             const cols = jobResults.schema.map(f => f.name);
 
+            // This is the container for the results table
             return (
-                <div className="flex-grow overflow-hidden border rounded-md bg-card mt-2">
-                    <ScrollArea className="h-full">
-                        <table className="w-full text-xs">
-                            <thead className="sticky top-0 bg-muted z-10">
-                                <tr>{cols.map(c => (<th key={c} className="px-2 py-1.5 text-left font-medium text-muted-foreground border-b border-r last:border-r-0">
-                                    <div className="flex items-center" title={c}><span className="truncate max-w-32">{c}</span>
-                                         {jobResults.schema && (
-                                             <TooltipProvider delayDuration={300}><Tooltip><TooltipTrigger asChild>
-                                                 <Info className="ml-1 h-3 w-3 text-muted-foreground/50 hover:text-muted-foreground"/>
-                                             </TooltipTrigger><TooltipContent className="text-xs">
-                                                    Type: {jobResults.schema.find(f => f.name === c)?.type ?? '?'}<br/>
-                                                     Mode: {jobResults.schema.find(f => f.name === c)?.mode ?? '?'}
-                                                 </TooltipContent></Tooltip></TooltipProvider>
-                                        )}
-                                     </div>
-                                </th>))}</tr>
-                            </thead>
-                            <tbody className="font-mono divide-y divide-border text-foreground">
-                                {dataToRender.map((r, i) => (
-                                    <tr key={i} className="hover:bg-muted/50">
-                                        {cols.map(c => (
-                                            <td key={c} className="px-2 py-1 max-w-40 truncate border-r last:border-r-0" title={String(r[c] ?? null)}>
-                                                {r[c] != null ? String(r[c]) : <span className="italic text-muted-foreground">null</span>}
-                                            </td>
-                                        ))}
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </ScrollArea>
+                <div className="flex-grow overflow-hidden border rounded-md bg-card mt-2"> {/* Parent container, overflow-hidden is fine */}
+                    <div className="h-full overflow-y-auto"> {/* Explicitly for VERTICAL scroll */}
+                        <div className="overflow-x-auto"> {/* Explicitly for HORIZONTAL scroll */}
+                            <table className="w-full text-xs" style={{ tableLayout: 'auto' }}> {/* Let table define its width */}
+                                <thead className="sticky top-0 bg-muted z-10">
+                                    <tr>{cols.map(c => (
+                                        <th key={c} className="px-2 py-1.5 text-left font-medium text-muted-foreground border-b border-r last:border-r-0 whitespace-nowrap">
+                                            <div className="flex items-center" title={c}>
+                                                <span>{c}</span> {/* Removed truncate to allow full header to be seen on scroll */}
+                                                {jobResults.schema && (
+                                                    <TooltipProvider delayDuration={300}>
+                                                        <Tooltip>
+                                                            <TooltipTrigger asChild>
+                                                                <Info className="ml-1 h-3 w-3 text-muted-foreground/50 hover:text-muted-foreground"/>
+                                                            </TooltipTrigger>
+                                                            <TooltipContent className="text-xs">
+                                                                Type: {jobResults.schema.find(f => f.name === c)?.type ?? '?'}<br/>
+                                                                Mode: {jobResults.schema.find(f => f.name === c)?.mode ?? '?'}
+                                                            </TooltipContent>
+                                                        </Tooltip>
+                                                    </TooltipProvider>
+                                                )}
+                                            </div>
+                                        </th>
+                                    ))}</tr>
+                                </thead>
+                                <tbody className="font-mono divide-y divide-border text-foreground">
+                                    {dataToRender.map((r, i) => (
+                                        <tr key={i} className="hover:bg-muted/50">
+                                            {cols.map(c => (
+                                                <td key={c} className="px-2 py-1 border-r last:border-r-0 whitespace-nowrap" title={String(r[c] ?? null)}>
+                                                    {r[c] != null ? String(r[c]) : <span className="italic text-muted-foreground">null</span>}
+                                                </td>
+                                            ))}
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
                 </div>
             );
         };
@@ -2559,6 +2837,7 @@ const renderEditorPane = () => {
                             <Tooltip>
                                 <TooltipTrigger asChild>
                                      <Button
+                                        //  id="tour-excel-download-button-results"
                                          variant="outline"
                                          size="sm"
                                          onClick={handleExcelDownload}
@@ -2652,7 +2931,24 @@ const renderEditorPane = () => {
 
     // --- MODIFIED: renderChartVisualization (Includes FilterControls, uses filteredData) ---
     const renderChartVisualization = () => {
+        const tooltipContentStyle = { // Renamed for clarity to avoid clash with itemStyle/labelStyle
+            background: 'hsl(var(--popover))',
+            color: 'hsl(var(--popover-foreground))', // This should ideally set the text color
+            border: '1px solid hsl(var(--border))',
+            borderRadius: 'var(--radius)',
+            fontSize: '12px',
+            padding: '8px 12px', // Added some padding for better looks
+        };
 
+        // Styles for the text items within the tooltip
+        const tooltipItemStyle = {
+            color: 'hsl(var(--popover-foreground))', // Explicitly set text color for items
+        };
+        const tooltipLabelStyle = {
+            color: 'hsl(var(--popover-foreground))', // Explicitly set text color for the label (if any)
+            fontWeight: 'bold', // Optional: make label bold
+            marginBottom: '4px', // Optional: space below label
+        };
          // Check if we should even be on this tab
          if (!activeVisualization) {
              return (
@@ -2719,7 +3015,9 @@ const renderEditorPane = () => {
                                 <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))"/>
                                 <XAxis dataKey={x_axis_column} angle={-45} textAnchor="end" height={60} interval={0} tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} stroke="hsl(var(--muted-foreground))"/>
                                 <YAxis tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} stroke="hsl(var(--muted-foreground))"/>
-                                <RechartsTooltip cursor={{ fill: 'hsla(var(--muted), 0.5)' }} contentStyle={{ background: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', borderRadius: 'var(--radius)', fontSize: '12px', color: 'hsl(var(--foreground))' }}/>
+                                <RechartsTooltip cursor={{ fill: 'hsla(var(--muted), 0.5)' }}                                     contentStyle={tooltipContentStyle}
+                                    itemStyle={tooltipItemStyle} 
+                                    labelStyle={tooltipLabelStyle} />
                                 <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '10px' }} />
                                 {validYCols.map((yCol, index) => ( <Bar key={yCol} dataKey={yCol} fill={COLORS[index % COLORS.length]} /> ))}
                              </BarChart>
@@ -2735,28 +3033,98 @@ const renderEditorPane = () => {
                                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))"/>
                                  <XAxis dataKey={x_axis_column} type="number" domain={['dataMin', 'dataMax']} scale="time" tickFormatter={(unixTime) => new Date(unixTime).toLocaleDateString()} tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} stroke="hsl(var(--muted-foreground))"/>
                                  <YAxis tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} stroke="hsl(var(--muted-foreground))"/>
-                                <RechartsTooltip labelFormatter={(unixTime) => new Date(unixTime).toLocaleString()} contentStyle={{ background: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', borderRadius: 'var(--radius)', fontSize: '12px', color: 'hsl(var(--foreground))' }}/>
+                                <RechartsTooltip labelFormatter={(unixTime) => new Date(unixTime).toLocaleString()}                                     contentStyle={tooltipContentStyle}
+                                    itemStyle={tooltipItemStyle} 
+                                    labelStyle={tooltipLabelStyle} />
                                  <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '10px' }} />
                                  {validYCols.map((yCol, index) => ( <Line key={yCol} type="monotone" dataKey={yCol} stroke={COLORS[index % COLORS.length]} strokeWidth={2} dot={false} activeDot={{ r: 6 }}/> ))}
                              </LineChart>
                          </ResponsiveContainer>
                      );
                  }
-                case 'pie': { /* ... PieChart aggregating `data` ... */
-                     const aggregatedPieData: { [key: string]: number } = {};
-                     data.forEach(row => { const category = String(row[x_axis_column] ?? 'Unknown'); const value = Number(row[validYCols[0]]); if (!isNaN(value)) { aggregatedPieData[category] = (aggregatedPieData[category] || 0) + value; }});
-                     const formattedDataPie = Object.entries(aggregatedPieData).map(([name, value]) => ({ name, value }));
-                    if (formattedDataPie.length === 0) { return <p className="p-4 text-orange-500">No valid data for pie chart after filtering.</p>; }
-                     return (
-                         <ResponsiveContainer width="100%" height="100%">
-                             <PieChart>
-                                 <Pie data={formattedDataPie} cx="50%" cy="50%" labelLine={false} outerRadius="80%" fill="#8884d8" dataKey="value" nameKey="name" label={{ fontSize: 10, fill: 'hsl(var(--foreground))' }}>
-                                     {formattedDataPie.map((_, index) => ( <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} /> ))}
-                                 </Pie>
-                                 <RechartsTooltip contentStyle={{ background: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', borderRadius: 'var(--radius)', fontSize: '12px', color: 'hsl(var(--foreground))' }}/>
-                                 <Legend wrapperStyle={{ fontSize: '11px' }}/>
-                             </PieChart>
-                         </ResponsiveContainer>
+                case 'pie': {
+                    // 1. Aggregate data for the pie chart
+                    const aggregatedData: { [key: string]: number } = {};
+                    data.forEach(row => {
+                        const category = String(row[x_axis_column] ?? 'Unknown');
+                        const value = Number(row[validYCols[0]]); // Assuming first y_axis_column is the value
+                        if (!isNaN(value)) {
+                            aggregatedData[category] = (aggregatedData[category] || 0) + value;
+                        }
+                    });
+
+                    // Convert to array and calculate total for percentages
+                    let chartDataEntries = Object.entries(aggregatedData).map(([name, value]) => ({ name, value }));
+                    const totalValue = chartDataEntries.reduce((sum, entry) => sum + entry.value, 0);
+
+                    // 2. Implement "Top N + Other" logic
+                    const MAX_PIE_SLICES = 7; // Show top 6 + "Other" if more
+                    let processedPieData = chartDataEntries;
+
+                    if (chartDataEntries.length > MAX_PIE_SLICES) {
+                        // Sort by value descending to find top N
+                        chartDataEntries.sort((a, b) => b.value - a.value);
+                        
+                        const topNData = chartDataEntries.slice(0, MAX_PIE_SLICES - 1);
+                        const otherData = chartDataEntries.slice(MAX_PIE_SLICES - 1);
+                        
+                        const otherValue = otherData.reduce((sum, item) => sum + item.value, 0);
+                        
+                        processedPieData = [...topNData];
+                        if (otherValue > 0) {
+                            processedPieData.push({ name: "Other", value: otherValue });
+                        }
+                    }
+                    
+                    // Add percentage to each slice for tooltip and potential label
+                    const finalPieData = processedPieData.map(entry => ({
+                        ...entry,
+                        percent: totalValue > 0 ? (entry.value / totalValue) : 0,
+                    })).sort((a,b) => b.value - a.value); // Sort final display by value
+
+                    if (finalPieData.length === 0) {
+                        return <p className="p-4 text-orange-500">No valid data for pie chart after filtering.</p>;
+                    }
+
+                    return (
+                        <ResponsiveContainer width="100%" height="100%">
+                            <PieChart margin={{ top: 5, right: 5, bottom: 5, left: 5 }}>
+                                <Pie
+                                    data={finalPieData}
+                                    cx="50%"
+                                    cy="50%" // Adjust cy if legend is at bottom to give more space
+                                    labelLine={false}
+                                    outerRadius="70%" // Adjust radius to make space for legend/labels
+                                    fill="#8884d8"
+                                    dataKey="value"
+                                    nameKey="name"
+                                    // Optional: Minimal labels on larger slices
+                                    label={({  percent }) =>
+                                        (percent && percent * 100 > 5) ? `${(percent * 100).toFixed(0)}%` : ''
+                                    }
+                                >
+                                    {finalPieData.map((_, index) => (
+                                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                                    ))}
+                                </Pie>
+                                <RechartsTooltip
+                                    contentStyle={tooltipContentStyle}
+                                    itemStyle={tooltipItemStyle}
+                                    labelStyle={tooltipLabelStyle}
+                                    formatter={(value: number, name: string, props: any) => {
+                                        const percentage = props.payload.percent !== undefined ? `(${(props.payload.percent * 100).toFixed(1)}%)` : '';
+                                        return [`${value.toLocaleString()} ${percentage}`, name];
+                                    }}
+                                />
+                                <Legend
+                                    wrapperStyle={{ fontSize: '11px', lineHeight: '20px', paddingTop: '15px' }}
+                                    // layout="vertical" // Consider if too many legend items
+                                    // align="right"
+                                    // verticalAlign="middle"
+                                    iconSize={10}
+                                />
+                            </PieChart>
+                        </ResponsiveContainer>
                     );
                 }
                  case 'scatter': { /* ... ScatterChart using `data` ... */
@@ -2770,7 +3138,9 @@ const renderEditorPane = () => {
                                 <CartesianGrid stroke="hsl(var(--border))"/>
                                  <XAxis type="number" dataKey="x" name={x_axis_column} tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} stroke="hsl(var(--muted-foreground))"/>
                                  <YAxis type="number" dataKey="y" name={yAxisName} tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} stroke="hsl(var(--muted-foreground))"/>
-                                 <RechartsTooltip cursor={{ strokeDasharray: '3 3' }} contentStyle={{ background: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', borderRadius: 'var(--radius)', fontSize: '12px', color: 'hsl(var(--foreground))' }} formatter={(value: any, name: string, props: any) => { const pointLabel = props.payload?.label; const axisName = name === 'x' ? x_axis_column : yAxisName; return [`${axisName}: ${value}`, pointLabel ? `Label: ${pointLabel}`: undefined]; }}/>
+                                 <RechartsTooltip cursor={{ strokeDasharray: '3 3' }}                                     contentStyle={tooltipContentStyle}
+                                    itemStyle={tooltipItemStyle} 
+                                    labelStyle={tooltipLabelStyle} />
                                 <Scatter name={yAxisName} data={formattedDataScatter} fill={COLORS[0]}/>
                             </ScatterChart>
                         </ResponsiveContainer>
@@ -2831,9 +3201,33 @@ const renderEditorPane = () => {
     // --- Main Component Return ---
     return (
         <TooltipProvider>
+                        <Joyride
+                steps={viewerTourSteps}
+                run={runViewerTour}
+                continuous
+                scrollToFirstStep
+                showProgress
+                showSkipButton
+                callback={handleViewerJoyrideCallback}
+                // debug // Useful during development
+                styles={{
+                    options: {
+                        zIndex: 10000,
+                        arrowColor: 'hsl(var(--popover))',
+                        backgroundColor: 'hsl(var(--popover))',
+                        primaryColor: 'hsl(var(--primary))',
+                        textColor: 'hsl(var(--popover-foreground))',
+                    },
+                    tooltipContainer: { textAlign: "left", },
+                    buttonNext: { backgroundColor: "hsl(var(--primary))", color: "hsl(var(--primary-foreground))", borderRadius: "var(--radius)" },
+                    buttonBack: { marginRight: 10, color: "hsl(var(--primary))" },
+                    buttonSkip: { color: "hsl(var(--muted-foreground))" }
+                }}
+                locale={{ last: 'Finish Tour', skip: 'Skip', next: 'Next', back: 'Back' }}
+            />
             <div className="flex h-full bg-background text-foreground overflow-hidden text-sm">
                 {/* Sidebar uses card background */}
-                <div className={`border-r border-border bg-card flex flex-col flex-shrink-0 transition-all duration-300 ease-in-out ${ sidebarCollapsed ? 'w-12' : 'w-64 md:w-72' }`} >
+                <div id="tour-sidebar-wrapper"  className={`border-r border-border bg-card flex flex-col flex-shrink-0 transition-all duration-300 ease-in-out ${ sidebarCollapsed ? 'w-12' : 'w-64 md:w-72' }`} >
                     {/* Sidebar Top Section (Collapse Button) */}
                     <div className={`p-2 border-b border-border flex ${sidebarCollapsed?'justify-center':'justify-end'} flex-shrink-0`}>
                          <Tooltip> <TooltipTrigger asChild><Button variant="ghost" size="icon" className="h-7 w-7" onClick={()=>setSidebarCollapsed(!sidebarCollapsed)}>{sidebarCollapsed?<ChevronRight className="h-4 w-4"/>:<ChevronLeft className="h-4 w-4"/>}</Button></TooltipTrigger><TooltipContent side="right">{sidebarCollapsed?'Expand':'Collapse'}</TooltipContent></Tooltip>
@@ -2843,7 +3237,9 @@ const renderEditorPane = () => {
                         {sidebarCollapsed ? (
                              <div className="flex flex-col items-center pt-3 gap-3">
                                 {/* Collapsed Icons... */}
-                                <Tooltip><TooltipTrigger asChild><Button variant={currentSidebarTab==='tables'?'secondary':'ghost'} size="icon" className="h-7 w-7" onClick={()=>{setCurrentSidebarTab('tables'); setSidebarCollapsed(false);}}><Database className="h-4 w-4"/></Button></TooltipTrigger><TooltipContent side="right">Tables</TooltipContent></Tooltip>
+                                <Tooltip><TooltipTrigger asChild><Button
+                                id="tour-chatbot-toggle"
+                                variant={currentSidebarTab==='tables'?'secondary':'ghost'} size="icon" className="h-7 w-7" onClick={()=>{setCurrentSidebarTab('tables'); setSidebarCollapsed(false);}}><Database className="h-4 w-4"/></Button></TooltipTrigger><TooltipContent side="right">Tables</TooltipContent></Tooltip>
                                 <Tooltip><TooltipTrigger asChild><Button variant={currentSidebarTab==='favorites'?'secondary':'ghost'} size="icon" className="h-7 w-7" onClick={()=>{setCurrentSidebarTab('favorites'); setSidebarCollapsed(false);}}><Bookmark className="h-4 w-4"/></Button></TooltipTrigger><TooltipContent side="right">Favorites</TooltipContent></Tooltip>
                                 <Tooltip><TooltipTrigger asChild><Button variant={currentSidebarTab==='history'?'secondary':'ghost'} size="icon" className="h-7 w-7" onClick={()=>{setCurrentSidebarTab('history'); setSidebarCollapsed(false);}}><History className="h-4 w-4"/></Button></TooltipTrigger><TooltipContent side="right">History</TooltipContent></Tooltip>
                                 <Tooltip><TooltipTrigger asChild><Button variant={currentSidebarTab==='schema'?'secondary':'ghost'} size="icon" className="h-7 w-7" onClick={()=>{setCurrentSidebarTab('schema'); setSidebarCollapsed(false);}}><ListTree className="h-4 w-4"/></Button></TooltipTrigger><TooltipContent side="right">Schema</TooltipContent></Tooltip>
@@ -2865,6 +3261,7 @@ const renderEditorPane = () => {
   <Tooltip>
                     <TooltipTrigger asChild>
                         <Button
+                            id="tour-chatbot-toggle"
                             variant="secondary" // Or "default" or "outline"
                             size="icon"
                             className="fixed bottom-4 left-4 z-50 rounded-full h-12 w-12 shadow-lg" // Positioned bottom-left

@@ -7,6 +7,7 @@ export function ThemeToggle() {
   
   return (
     <Button
+      id="tour-theme-toggle-button" 
       variant="outline"
       size="icon"
       onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}

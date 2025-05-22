@@ -1,5 +1,5 @@
 // src/features/upload/UploadView.tsx
-import { useState, useCallback,useEffect  } from 'react';
+import { useState, useCallback,useEffect,useMemo  } from 'react';
 import { UploadHeader } from './components/UploadHeader';
 import { UploadArea } from './components/UploadArea';
 import { FileList } from './components/FileList';
@@ -9,10 +9,12 @@ import { ETLFile, ProcessingStage } from './types';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast"
 // +++ MODIFICATION START +++
+// , Landmark, UploadCloud, ListChecks
 import { Loader2 } from 'lucide-react'; // For loading state
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"; // For error state
 import { Terminal } from 'lucide-react'; // Icon for error alert
 import { Label } from '@/components/ui/label';
+import Joyride, { Step, CallBackProps, STATUS } from 'react-joyride'; // +++ Joyride Import +++
 import { useAuth } from '@/contexts/AuthContext';
 import { DatasetActions } from './components/DatasetActions';
 import { v4 as uuidv4 } from 'uuid';
@@ -27,6 +29,8 @@ interface DatasetListApiResponse {
 }
 // Modified UploadView
 export function UploadView() {
+  const MAX_FILE_SIZE_MB = 50;
+  const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
   const [files, setFiles] = useState<ETLFile[]>([]);
   const [processingStage, setProcessingStage] = useState<ProcessingStage>('idle');
   const [isUploading, setIsUploading] = useState<boolean>(false);
@@ -42,6 +46,108 @@ export function UploadView() {
   const [loadingDatasets, setLoadingDatasets] = useState<boolean>(true);
   const [datasetError, setDatasetError] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState<boolean>(false);
+
+  // +++ Joyride State +++
+  const [runTour, setRunTour] = useState<boolean>(false);
+  const TOUR_VERSION = 'uploadViewTour_v1'; // For managing tour updates
+
+  useEffect(() => {
+    console.log('[Tour Effect] Running. loadingDatasets:', loadingDatasets);
+    const hasSeenTour = localStorage.getItem(TOUR_VERSION);
+    console.log('[Tour Effect] hasSeenTour:', hasSeenTour);
+
+    // Check if critical elements are in the DOM
+    const workspaceSelectionElement = document.getElementById('tour-step-workspace-selection');
+    const uploadAreaElement = document.getElementById('tour-step-upload-area');
+    // For file list, it only appears if files.length > 0, so we might not check it here initially,
+    // or the tour step for it should only be active when files are present.
+
+    console.log('[Tour Effect] workspaceSelectionElement exists:', !!workspaceSelectionElement);
+    console.log('[Tour Effect] uploadAreaElement exists:', !!uploadAreaElement);
+
+    if (!hasSeenTour && !loadingDatasets && workspaceSelectionElement && uploadAreaElement) {
+      console.log('[Tour Effect] All conditions met! Setting runTour to true in 500ms.');
+      const timer = setTimeout(() => {
+        console.log('[Tour Effect] Timeout fired. Calling setRunTour(true).');
+        setRunTour(true);
+      }, 500);
+      return () => {
+        console.log('[Tour Effect] Cleanup: Clearing timeout.');
+        clearTimeout(timer);
+      };
+    } else {
+      console.log('[Tour Effect] Conditions NOT met. Details:');
+      if (hasSeenTour) console.log('  - Tour already seen.');
+      if (loadingDatasets) console.log('  - Still loading datasets.');
+      if (!workspaceSelectionElement) console.log('  - Workspace selection element NOT FOUND in DOM.');
+      if (!uploadAreaElement) console.log('  - Upload area element NOT FOUND in DOM.');
+    }
+  }, [loadingDatasets, TOUR_VERSION]); // TOUR_VERSION is a constant, but good practice if it could change
+                                      // files.length could be added if file-list step is critical for initial start
+
+  const uploadTourSteps: Step[] = [
+    {
+      target: '#tour-step-workspace-selection',
+      content: (
+        <div>
+          <h4>Welcome to the Upload Page!</h4>
+          <p className="mt-2">
+            First, select an existing <strong>Workspace</strong> from this dropdown, or create a new one.
+            Files you upload will be processed into the selected Workspace.
+          </p>
+        </div>
+      ),
+      placement: 'bottom',
+      disableBeacon: true,
+      floaterProps: { disableAnimation: true },
+    },
+    {
+      target: '#tour-step-upload-area',
+      content: (
+        <div>
+          <h4>Upload Your Files</h4>
+          <p className="mt-2">
+            Drag and drop your Excel files (.xlsx, .xls) here, or click to browse your computer.
+          </p>
+        </div>
+      ),
+      placement: 'right',
+      floaterProps: { disableAnimation: true },
+    },
+    // {
+    //   target: '#tour-step-file-list-actions', // This ID will be on the FileList component's wrapper
+    //   content: (
+    //     <div>
+    //       <h4>Manage and Process</h4>
+    //       <p className="mt-2">
+    //         After adding files, they'll appear here. You can then click <strong>"Upload All"</strong> to start processing.
+    //       </p>
+    //     </div>
+    //   ),
+    //   placement: 'top',
+    //   floaterProps: { disableAnimation: true },
+    // },
+  ];
+
+  const handleJoyrideCallback = (data: CallBackProps) => {
+    const { status, type } = data;
+    const finishedStatuses: string[] = [STATUS.FINISHED, STATUS.SKIPPED];
+
+    if (finishedStatuses.includes(status) || type === 'tour:end') {
+      setRunTour(false);
+      localStorage.setItem(TOUR_VERSION, 'true');
+    }
+  };
+  // +++ End Joyride State +++
+
+
+// src/features/upload/UploadView.tsx
+const canCreateWorkspace = useMemo(() => {
+  if (isRoleLoading || loadingDatasets) { // <<<< KEY ADDITION
+    return false; // Decision cannot be made reliably yet
+  }
+  return isAdmin || (!isAdmin && availableDatasets.length === 0);
+}, [isAdmin, isRoleLoading, loadingDatasets, availableDatasets.length]);
   // We can derive a general 'isProcessing' state
   const isProcessing = isUploading || isDeleting; // Add || isCreating if Create had its own loading state here
   const fetchDatasets = async () => {
@@ -55,20 +161,32 @@ export function UploadView() {
       );
       setAvailableDatasets(datasets);
   
-      if (datasets.length > 0 && !selectedDatasetId) {
-        setSelectedDatasetId(datasets[0].datasetId);
-      } else if (datasets.length === 0) {
+      if (datasets.length > 0) {
+        // If datasets are available, select the first one if nothing is selected
+        // or if the current selection is no longer in the list (e.g., after deletion by admin)
+        if (!selectedDatasetId || !datasets.find(d => d.datasetId === selectedDatasetId)) {
+          // console.log("[UploadView] Selecting first dataset:", datasets[0].datasetId);
+          setSelectedDatasetId(datasets[0].datasetId);
+        }
+      } else {
+        // No datasets returned for this user
         setSelectedDatasetId("");
-        setDatasetError("No accessible datasets found.");
+        console.log("[UploadView] No datasets returned for user.");
+        // --- CRITICAL CHANGE: DO NOT set a generic error if the user might be able to create one ---
+        // If it's not an admin and they can create, this is fine.
+        // An error will only be shown if a fetch *actually* failed (caught in catch block)
+        // or if it's an admin with no datasets (they can create).
+        // A non-admin who cannot create and has no datasets will be guided by DatasetActions.
       }
     } catch (err: any) {
-      console.error("Error fetching datasets:", err);
+      console.error("[UploadView] Error fetching datasets:", err);
       const message = (err as any).isAxiosError ? err.response?.data?.detail || err.message : err.message;
-      setDatasetError(`Failed to load datasets: ${message}`);
-      setAvailableDatasets([]); // Clear datasets on error
-      setSelectedDatasetId(""); // Clear selection on error
+      setDatasetError(`Failed to load workspace list: ${message}`);
+      setAvailableDatasets([]); 
+      setSelectedDatasetId(""); 
     } finally {
       setLoadingDatasets(false);
+      // console.log("[UploadView] fetchDatasets finished. LoadingDatasets:", false);
     }
   };
   useEffect(() => {
@@ -77,9 +195,9 @@ export function UploadView() {
   }, []);
   
   // Now this works too:
-  const handleDatasetCreated = () => {
-    fetchDatasets(); // ✅ This will work now
-  }; // Empty dependency array ensures this runs only once on mount
+const handleDatasetCreated = useCallback(() => {
+  fetchDatasets(); // This will set loadingDatasets to true, then false.
+}, [fetchDatasets]); // Empty dependency array ensures this runs only once on mount
   // +++ MODIFICATION END +++
   const handleDeleteDatasetConfirmed = async () => {
     if (!selectedDatasetId || !isAdmin) return; // Guard again
@@ -101,6 +219,7 @@ export function UploadView() {
         setIsDeleting(false);
     }
 };
+
   const handleFilesAdded = useCallback((newFiles: File[]) => {
     if (!selectedDatasetId) {
       toast({
@@ -109,6 +228,18 @@ export function UploadView() {
           description: "Please select a target dataset first before adding files.",
       });
       return; // Prevent adding files if no dataset is selected
+  }
+  const validFiles = newFiles.filter(
+    file =>
+      /\.(xlsx|xls)$/i.test(file.name) &&
+      file.size <= MAX_FILE_SIZE_BYTES
+  );
+  if (validFiles.length < newFiles.length) {
+    toast({
+      variant: "destructive",
+      title: "Invalid Files Skipped",
+      description: `Only Excel files under ${MAX_FILE_SIZE_MB} MB are allowed.`
+    });
   }
     const newETLFiles: ETLFile[] = newFiles
       .filter(file => /\.(xlsx|xls)$/i.test(file.name) && file.size < 50 * 1024 * 1024)
@@ -205,12 +336,12 @@ export function UploadView() {
         const uploadResp = await fetch(uploadUrl, { method: 'PUT', headers: { 'Content-Type': file.type }, body: file.file });
         if (!uploadResp.ok) { let errorText = 'Upload failed.'; try { errorText = await uploadResp.text(); } catch { /* ignore */ } throw new Error(`Upload failed: ${uploadResp.status} ${errorText.substring(0, 100)}`); }
         updateFileState(file.id, { progress: 80 });
-        console.log(`[DEBUG] Triggering ETL for file ${file.name}:`, {
-          payload: {
-              object_name: object_name,
-              target_dataset_id: targetDataset
-          }
-      });
+      //   console.log(`[DEBUG] Triggering ETL for file ${file.name}:`, {
+      //     payload: {
+      //         object_name: object_name,
+      //         target_dataset_id: targetDataset
+      //     }
+      // });
       interface ApiErrorResponse {
         detail?: string;
         // Add other possible error response fields if needed
@@ -269,16 +400,54 @@ export function UploadView() {
   const filesWithError = files.filter(f => f.status === 'error').length;
 
   return (
+    <>
+       <Joyride
+        steps={uploadTourSteps}
+        run={runTour}
+        continuous
+        showProgress
+        showSkipButton
+        callback={handleJoyrideCallback}
+        styles={{
+          options: {
+            zIndex: 10000,
+            arrowColor: 'hsl(var(--card))',
+            backgroundColor: 'hsl(var(--card))',
+            primaryColor: 'hsl(var(--primary))',
+            textColor: 'hsl(var(--card-foreground))',
+          },
+          tooltipContainer: {
+            textAlign: "left",
+          },
+          buttonNext: {
+            backgroundColor: "hsl(var(--primary))",
+            color: "hsl(var(--primary-foreground))",
+            borderRadius: "var(--radius)",
+          },
+          buttonBack: {
+            marginRight: 10,
+            color: "hsl(var(--primary))",
+          },
+          buttonSkip: {
+            color: "hsl(var(--muted-foreground))",
+          }
+        }}
+        locale={{
+          last: 'End Tour',
+          skip: 'Skip Tour',
+          next: 'Next',
+          back: 'Back',
+        }}
+      />
     <div className="container mx-auto px-4 py-8 max-w-5xl space-y-8">
       <UploadHeader />
 
       {/* --- CORRECTED Dataset Selector Section --- */}
 
-      <div className="p-4 border rounded-lg bg-card shadow-sm space-y-3">
+      <div id="tour-step-workspace-selection" className="p-4 border rounded-lg bg-card shadow-sm space-y-3">
           <Label htmlFor="dataset-select" className="block text-sm font-medium text-muted-foreground">
           Workspace <span className="text-destructive">*</span>
           </Label>
-          {isAdmin && (
           <DatasetActions
                         isAdmin={isAdmin}
                         isRoleLoading={isRoleLoading}
@@ -287,8 +456,9 @@ export function UploadView() {
                         isProcessing={isProcessing} // Pass combined processing state
                         onDatasetCreated={handleDatasetCreated} // Callback for create button
                         onDeleteConfirmed={handleDeleteDatasetConfirmed} // Callback for delete button
+                        canUserCreateWorkspace={canCreateWorkspace} 
+                        hasExistingWorkspaces={availableDatasets.length > 0}
                     />
-                  )}
           {/* Loading State */}
           {loadingDatasets && (
               <div className="flex items-center text-sm text-muted-foreground">
@@ -300,7 +470,7 @@ export function UploadView() {
           {!loadingDatasets && datasetError && !availableDatasets.length && (
               <Alert variant="destructive">
                   <Terminal className="h-4 w-4" />
-                  <AlertTitle>Error Loading Workspace</AlertTitle>
+                  <AlertTitle>No Workspace Found</AlertTitle>
                   <AlertDescription>
                       {datasetError}
                   </AlertDescription>
@@ -327,12 +497,12 @@ export function UploadView() {
                       <SelectContent>
                           {availableDatasets.length === 0 ? (
                               <div className="px-4 py-2 text-sm text-muted-foreground italic">
-                                  No datasets found. Create one?
+                                  No workspace found. Create one?
                               </div>
                           ) : (
                               availableDatasets.map(ds => (
                                   <SelectItem key={ds.datasetId} value={ds.datasetId}>
-                                      {ds.datasetId} ({ds.location})
+                                      {ds.datasetId}
                                   </SelectItem>
                               ))
                           )}
@@ -349,12 +519,13 @@ export function UploadView() {
                Select the Workspace where your uploaded files will be processed, or create a new one.
           </p>
       </div>
+      
       {/* --- END Dataset Selector Section --- */}
 
 
       {/* --- Upload Area and File List --- */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="md:col-span-2 space-y-6">
+        <div id="tour-step-upload-area" className="md:col-span-2 space-y-6">
           {/* Upload Area */}
           <UploadArea
             onFilesAdded={handleFilesAdded}
@@ -364,6 +535,7 @@ export function UploadView() {
 
           {/* File List */}
           {files.length > 0 && (
+            <div id="tour-step-file-list-actions">
              <FileList
                 files={files}
                 onRemove={removeFile}
@@ -372,6 +544,7 @@ export function UploadView() {
                 isProcessing={processingStage === 'uploading' || isUploading} // Simplified processing state check
                 isLoading={isUploading} // Pass loading state specifically for upload button
              />
+             </div>
           )}
         </div>
 
@@ -386,5 +559,6 @@ export function UploadView() {
         </div>
       </div>
     </div>
+    </>
   );
 }

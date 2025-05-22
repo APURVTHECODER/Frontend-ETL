@@ -25,9 +25,8 @@ const LoginPage: React.FC = () => {
     setIsLoading(true);
     try {
       // Sign in using a popup window
-      const result = await signInWithPopup(auth, googleProvider);
-      const loggedInUser = result.user;
-      console.log("Google Sign-In Success:", loggedInUser);
+      await signInWithPopup(auth, googleProvider);
+      // console.log("Google Sign-In Success:", loggedInUser);
       // Firebase's onAuthStateChanged listener in AuthContext will handle state update
       // and redirection will happen automatically in App.tsx or ProtectedRoute
       // Navigate back to the page the user was trying to access, or home
@@ -58,9 +57,9 @@ const LoginPage: React.FC = () => {
       <div className="w-full max-w-md p-8 space-y-6 bg-card rounded-xl shadow-lg border">
         <div className="text-center">
           <Database className="mx-auto h-12 w-12 text-primary mb-3" /> {/* App Icon */}
-          <h1 className="text-2xl font-bold text-card-foreground">Sign in to ETL Platform</h1>
+          <h1 className="text-2xl font-bold text-card-foreground">Sign in to TransformEXL Ai</h1>
           <p className="text-muted-foreground mt-1 text-sm">
-            Access your data processing and exploration tools.
+            Access the power of TransformEXL Ai
           </p>
         </div>
 

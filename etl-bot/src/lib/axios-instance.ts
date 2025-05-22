@@ -24,7 +24,7 @@ axiosInstance.interceptors.request.use(
                 // Handle error, maybe sign out user or redirect to login
             }
         } else {
-             console.log("No current user, sending request without token:", config.url);
+            //  console.log("No current user, sending request without token:", config.url);
         }
         return config;
     },

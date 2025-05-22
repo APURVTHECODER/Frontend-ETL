@@ -18,9 +18,9 @@ const firebaseConfig = {
 let app: FirebaseApp;
 try {
     app = initializeApp(firebaseConfig);
-    console.log("Firebase App Initialized");
+    // console.log("Firebase App Initialized");
 } catch (error) {
-    console.error("Error initializing Firebase App:", error);
+    // console.error("Error initializing Firebase App:", error);
     // Handle initialization error appropriately, maybe show error message
     // For now, we'll throw it so it's visible during development
     throw new Error("Firebase initialization failed");
