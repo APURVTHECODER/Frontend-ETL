@@ -52,9 +52,9 @@ export function UploadView() {
   const TOUR_VERSION = 'uploadViewTour_v1'; // For managing tour updates
 
   useEffect(() => {
-    console.log('[Tour Effect] Running. loadingDatasets:', loadingDatasets);
+    // console.log('[Tour Effect] Running. loadingDatasets:', loadingDatasets);
     const hasSeenTour = localStorage.getItem(TOUR_VERSION);
-    console.log('[Tour Effect] hasSeenTour:', hasSeenTour);
+    // console.log('[Tour Effect] hasSeenTour:', hasSeenTour);
 
     // Check if critical elements are in the DOM
     const workspaceSelectionElement = document.getElementById('tour-step-workspace-selection');
@@ -62,26 +62,20 @@ export function UploadView() {
     // For file list, it only appears if files.length > 0, so we might not check it here initially,
     // or the tour step for it should only be active when files are present.
 
-    console.log('[Tour Effect] workspaceSelectionElement exists:', !!workspaceSelectionElement);
-    console.log('[Tour Effect] uploadAreaElement exists:', !!uploadAreaElement);
+    // console.log('[Tour Effect] workspaceSelectionElement exists:', !!workspaceSelectionElement);
+    // console.log('[Tour Effect] uploadAreaElement exists:', !!uploadAreaElement);
 
     if (!hasSeenTour && !loadingDatasets && workspaceSelectionElement && uploadAreaElement) {
-      console.log('[Tour Effect] All conditions met! Setting runTour to true in 500ms.');
+      // console.log('[Tour Effect] All conditions met! Setting runTour to true in 500ms.');
       const timer = setTimeout(() => {
-        console.log('[Tour Effect] Timeout fired. Calling setRunTour(true).');
+        // console.log('[Tour Effect] Timeout fired. Calling setRunTour(true).');
         setRunTour(true);
       }, 500);
       return () => {
-        console.log('[Tour Effect] Cleanup: Clearing timeout.');
+        // console.log('[Tour Effect] Cleanup: Clearing timeout.');
         clearTimeout(timer);
       };
-    } else {
-      console.log('[Tour Effect] Conditions NOT met. Details:');
-      if (hasSeenTour) console.log('  - Tour already seen.');
-      if (loadingDatasets) console.log('  - Still loading datasets.');
-      if (!workspaceSelectionElement) console.log('  - Workspace selection element NOT FOUND in DOM.');
-      if (!uploadAreaElement) console.log('  - Upload area element NOT FOUND in DOM.');
-    }
+    } 
   }, [loadingDatasets, TOUR_VERSION]); // TOUR_VERSION is a constant, but good practice if it could change
                                       // files.length could be added if file-list step is critical for initial start
 
@@ -171,7 +165,7 @@ const canCreateWorkspace = useMemo(() => {
       } else {
         // No datasets returned for this user
         setSelectedDatasetId("");
-        console.log("[UploadView] No datasets returned for user.");
+        // console.log("[UploadView] No workspace returned for user.");
         // --- CRITICAL CHANGE: DO NOT set a generic error if the user might be able to create one ---
         // If it's not an admin and they can create, this is fine.
         // An error will only be shown if a fetch *actually* failed (caught in catch block)
@@ -179,7 +173,7 @@ const canCreateWorkspace = useMemo(() => {
         // A non-admin who cannot create and has no datasets will be guided by DatasetActions.
       }
     } catch (err: any) {
-      console.error("[UploadView] Error fetching datasets:", err);
+      console.error("[UploadView] Error fetching workspace:", err);
       const message = (err as any).isAxiosError ? err.response?.data?.detail || err.message : err.message;
       setDatasetError(`Failed to load workspace list: ${message}`);
       setAvailableDatasets([]); 
@@ -204,14 +198,14 @@ const handleDatasetCreated = useCallback(() => {
     setIsDeleting(true);
     try {
         await axiosInstance.delete(`/api/bigquery/datasets/${selectedDatasetId}`);
-        toast({ title: "Dataset Deleted", description: `Dataset "${selectedDatasetId}" deleted.`, variant: "default" });
+        toast({ title: "Workspace Deleted", description: `Workspace "${selectedDatasetId}" deleted.`, variant: "default" });
         setSelectedDatasetId(""); // Reset selection
         fetchDatasets();      // Refresh list
     } catch (error: any) {
-        console.error(`Error deleting dataset ${selectedDatasetId}:`, error);
-        let message = `Failed to delete dataset "${selectedDatasetId}".`;
+        console.error(`Error deleting Workspace ${selectedDatasetId}:`, error);
+        let message = `Failed to delete Workspace "${selectedDatasetId}".`;
         if ((error as any).isAxiosError) {
-             if (error.response?.status === 404) { message = `Dataset "${selectedDatasetId}" not found.`; fetchDatasets(); }
+             if (error.response?.status === 404) { message = `Workspace "${selectedDatasetId}" not found.`; fetchDatasets(); }
              else { message = error.response?.data?.detail || error.message || message; }
         } else if (error instanceof Error) { message = error.message; }
         toast({ variant: "destructive", title: "Deletion Failed", description: message });
@@ -224,8 +218,8 @@ const handleDatasetCreated = useCallback(() => {
     if (!selectedDatasetId) {
       toast({
           variant: "destructive",
-          title: "Select Dataset",
-          description: "Please select a target dataset first before adding files.",
+          title: "Select Workspace",
+          description: "Please select a target workspace first before adding files.",
       });
       return; // Prevent adding files if no dataset is selected
   }
@@ -289,7 +283,7 @@ const handleDatasetCreated = useCallback(() => {
 
     // Double-check if a dataset is selected (using the placeholder state here)
     if (!selectedDatasetId) {
-        toast({ title: "Dataset Required", description: "Please select a target dataset before uploading.", variant: "destructive" });
+        toast({ title: "Workspace Required", description: "Please select a target workspace before uploading.", variant: "destructive" });
         return;
     }
 
@@ -302,8 +296,8 @@ const handleDatasetCreated = useCallback(() => {
       // Ensure the file has a target dataset ID (should be set on add, but double-check)
       const targetDataset = file.targetDatasetId || selectedDatasetId;
       if (!targetDataset) {
-          updateFileState(file.id, { status: 'error', progress: 0, errorMessage: "Target dataset not specified for this file." });
-          return { status: 'rejected', id: file.id, reason: "Target dataset missing." };
+          updateFileState(file.id, { status: 'error', progress: 0, errorMessage: "Target workspace not specified for this file." });
+          return { status: 'rejected', id: file.id, reason: "Target workspace missing." };
       }
 
       updateFileState(file.id, { status: 'uploading', progress: 10, errorMessage: null });
