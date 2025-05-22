@@ -207,7 +207,7 @@ function AppContent() {
                 }}
                 locale={{ last: 'Got it!', skip: 'Skip', next: 'Next', back: 'Back' }}
             />
-        <div className="min-h-screen bg-background flex flex-col">
+        <div className="h-screen bg-background flex flex-col ">
             <main className="flex-grow  w-full">
                 <Routes>
                     <Route path={LOGIN_PATH} element={<LoginPage />} />
