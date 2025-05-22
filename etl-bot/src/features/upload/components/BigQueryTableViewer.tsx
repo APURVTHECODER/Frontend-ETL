@@ -131,6 +131,7 @@ type ActiveVisualizationConfig = {
     rationale?: string;
   };
 const BigQueryTableViewer: React.FC = () => {
+      const [userJustSelectedSuggestion, setUserJustSelectedSuggestion] = useState(false);
         // +++ Joyride State for BigQueryTableViewer Tour +++
     const [runViewerTour, setRunViewerTour] = useState<boolean>(false);
     const VIEWER_TOUR_VERSION = 'bigQueryTableViewerTour_v2'; // Increment if you change the tour significantly
@@ -539,36 +540,46 @@ const handlePromptChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) 
     const newPrompt = e.target.value;
     setNlPrompt(newPrompt);
     setNlError(""); // Clear NL error on type
-
+  setUserJustSelectedSuggestion(false);
     // Clear existing debounce timeout
     if (suggestionTimeoutRef.current) {
         clearTimeout(suggestionTimeoutRef.current);
     }
 
     // Hide suggestions while typing and set new timeout
-    setShowSuggestions(false);
-    setIsLoadingSuggestions(false); // Reset loading if user types again quickly
-    setPromptSuggestions([]); // Clear old suggestions immediately
+    // setShowSuggestions(false);
+    // setIsLoadingSuggestions(false); // Reset loading if user types again quickly
+    // setPromptSuggestions([]); // Clear old suggestions immediately
 
 
-    if (newPrompt.trim().length >= 3) { // Only set timeout if prompt is long enough
-        suggestionTimeoutRef.current = setTimeout(() => {
-            fetchPromptSuggestions(newPrompt);
-        }, 500); // 500ms debounce delay
-    }
-
-}, [fetchPromptSuggestions]); // Depends on fetchPromptSuggestions
+       if (newPrompt.trim().length >= 3) {
+            setIsLoadingSuggestions(true); // Show loader while debouncing
+            suggestionTimeoutRef.current = setTimeout(() => {
+                if (!userJustSelectedSuggestion) { // Only fetch if not immediately after selecting one
+                    fetchPromptSuggestions(newPrompt);
+                }
+            }, 250);
+        } else {
+            setShowSuggestions(false); // Hide if prompt is too short
+            setPromptSuggestions([]);
+            setIsLoadingSuggestions(false);
+        }
+    }, [fetchPromptSuggestions, userJustSelectedSuggestion]); // +++ Added userJustSelectedSuggestion +++
 
 // +++ Handle Suggestion Selection +++
 const handleSuggestionClick = useCallback((suggestion: string) => {
+    
+    setUserJustSelectedSuggestion(true);
     setNlPrompt(suggestion); // Update prompt input
     setShowSuggestions(false); // Hide suggestions
     setPromptSuggestions([]); // Clear suggestions
     if (suggestionTimeoutRef.current) { // Clear any pending fetch
         clearTimeout(suggestionTimeoutRef.current);
     }
-    promptInputRef.current?.focus(); // Optional: refocus the input
-}, []);
+    setTimeout(() => {
+        promptInputRef.current?.focus();
+    }, 0);
+}, [setNlPrompt, setShowSuggestions, setPromptSuggestions /* other stable setters if any */ ]);
 
 
 const handleDeleteTable = useCallback(async (datasetIdToDeleteFrom: string, tableIdToDelete: string) => {
@@ -2410,11 +2421,19 @@ const renderEditorPane = () => {
                                 placeholder={selectedTableId ? "Describe query in plain language..." : "Select table for AI assistance..."}
                                 value={nlPrompt}
                                 onChange={handlePromptChange}
-                                onFocus={() => {
-                                    if (promptSuggestions.length > 0) {
-                                        setShowSuggestions(true);
-                                    }
-                                }}
+onFocus={() => {
+    if (!userJustSelectedSuggestion && nlPrompt.trim().length >= 3) {
+        // Only show if there are existing suggestions or if we are currently loading them.
+        // This prevents showing an empty "No suggestions found" state just because of focus.
+        if (promptSuggestions.length > 0 || isLoadingSuggestions) {
+            setShowSuggestions(true);
+        }
+        // If no suggestions and not loading, user will need to type to trigger a new fetch.
+    }
+    // Do NOT reset userJustSelectedSuggestion here. It should only be reset by actual typing
+    // or clicking outside, ensuring that a programmatic re-focus after selection doesn't
+    // immediately re-trigger the suggestion display.
+}}
                                 className="flex-grow text-xs h-9 pl-9 pr-3 focus:ring-2 focus:ring-primary/20 font-medium transition-all duration-200 bg-background"
                                 disabled={generatingSql || !selectedTableId}
                                 title={!selectedTableId ? "Select table first." : ""}
