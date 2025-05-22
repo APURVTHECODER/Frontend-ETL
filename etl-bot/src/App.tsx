@@ -207,11 +207,11 @@ function AppContent() {
                 }}
                 locale={{ last: 'Got it!', skip: 'Skip', next: 'Next', back: 'Back' }}
             />
-        <div className="h-screen bg-background flex flex-col overflow-hidden">
-            <main className="flex-grow overflow-hidden w-full">
+        <div className="min-h-screen bg-background flex flex-col">
+            <main className="flex-grow  w-full">
                 <Routes>
                     <Route path={LOGIN_PATH} element={<LoginPage />} />
-                    <Route path={UPLOAD_PATH} element={<ProtectedRoute><div className="h-full w-full overflow-auto"><UploadView /></div></ProtectedRoute>} />
+                    <Route path={UPLOAD_PATH} element={<ProtectedRoute><div ><UploadView /></div></ProtectedRoute>} />
                     <Route path={EXPLORER_PATH} element={<ProtectedRoute><BigQueryTableViewer /></ProtectedRoute>} />
                     <Route path="/" element={<ProtectedRoute><BigQueryTableViewer /></ProtectedRoute>} />
                     <Route path="*" element={
