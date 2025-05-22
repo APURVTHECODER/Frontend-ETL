@@ -30,6 +30,8 @@ interface DatasetListApiResponse {
 // Modified UploadView
 export function UploadView() {
   const MAX_FILE_SIZE_MB = 50;
+  const MAX_CONCURRENT_FILES = 5; // Define your limit
+  
   const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
   const [files, setFiles] = useState<ETLFile[]>([]);
   const [processingStage, setProcessingStage] = useState<ProcessingStage>('idle');
@@ -215,12 +217,50 @@ const handleDatasetCreated = useCallback(() => {
 };
 
   const handleFilesAdded = useCallback((newFiles: File[]) => {
+    const remainingSlots = MAX_CONCURRENT_FILES - files.length;
+    const filesToConsider = newFiles.slice(0, remainingSlots);
+
     if (!selectedDatasetId) {
       toast({
           variant: "destructive",
           title: "Select Workspace",
           description: "Please select a target workspace first before adding files.",
       });
+      if (files.length >= MAX_CONCURRENT_FILES) {
+    toast({
+        variant: "destructive",
+        title: "Upload Limit Reached",
+        description: `You can add a maximum of ${MAX_CONCURRENT_FILES} files at a time. Please upload or remove existing files first.`,
+    });
+        if (newFiles.length > filesToConsider.length) {
+    toast({
+        variant: "destructive",
+        title: "Some Files Skipped",
+        description: `You attempted to add ${newFiles.length} files, but only ${filesToConsider.length} could be added due to the ${MAX_CONCURRENT_FILES} file limit.`,
+    });
+}   if (filesToConsider.length === 0) {
+        // The toast for limit reached (point 2) would have already fired if files.length was >= MAX_CONCURRENT_FILES
+        // This handles the case where files.length was < MAX_CONCURRENT_FILES, but remainingSlots was 0 or negative (shouldn't happen with correct logic but safe).
+        return;
+    }
+        const validFiles = filesToConsider.filter(
+        file =>
+          /\.(xlsx|xls)$/i.test(file.name) &&
+          file.size <= MAX_FILE_SIZE_BYTES
+    );
+    if (validFiles.length < filesToConsider.length) {
+        toast({
+          variant: "destructive", // Or "warning" if you prefer
+          title: "Invalid Files Skipped",
+          description: `Among the files considered for adding, ${filesToConsider.length - validFiles.length} were invalid (not Excel or too large). Only Excel files under ${MAX_FILE_SIZE_MB} MB are allowed.`
+        });
+    }
+        // If no files are valid after all checks, don't proceed
+    if (validFiles.length === 0) {
+        return;
+    }
+    return; // Stop processing if already at or over the limit
+}
       return; // Prevent adding files if no dataset is selected
   }
   const validFiles = newFiles.filter(
@@ -257,13 +297,30 @@ const handleDatasetCreated = useCallback(() => {
       }
 
       setFiles(prevFiles => {
-          const existingNames = new Set(prevFiles.map(f => f.name));
-          const uniqueNewFiles = newETLFiles.filter(nf => !existingNames.has(nf.name));
-          return [...prevFiles, ...uniqueNewFiles];
+        const existingNames = new Set(prevFiles.map(f => f.name));
+        const uniqueNewFiles = newETLFiles.filter(nf => !existingNames.has(nf.name));
+        
+        const combinedFiles = [...prevFiles, ...uniqueNewFiles];
+        
+        // Final check, though the slicing should prevent this
+        if (combinedFiles.length > MAX_CONCURRENT_FILES) {
+            // This should not happen if logic above is correct, but good to be safe.
+            // Potentially remove from the *start* of uniqueNewFiles if we really want to add some.
+            // Or, more simply, just take up to the limit from the combined array.
+            // However, the `remainingSlots` logic should prevent this state.
+            // For now, let's assume `remainingSlots` logic is primary and this is defensive.
+             toast({
+                 variant: "destructive",
+                 title: "Internal Limit Adjustment",
+                 description: `Ensuring file queue does not exceed ${MAX_CONCURRENT_FILES}. Some files might have been unexpectedly trimmed.`
+             });
+            return combinedFiles.slice(0, MAX_CONCURRENT_FILES);
+        }
+        return combinedFiles;
       });
   // +++ MODIFICATION START +++
   // Depend on selectedDatasetId so new files get the correct target
-  }, [toast, selectedDatasetId]);
+  }, [files, selectedDatasetId, toast, MAX_FILE_SIZE_BYTES, MAX_FILE_SIZE_MB, MAX_CONCURRENT_FILES]);
   // +++ MODIFICATION END +++
 
   // --- Function to update a single file's state ---
@@ -524,9 +581,14 @@ const handleDatasetCreated = useCallback(() => {
           <UploadArea
             onFilesAdded={handleFilesAdded}
             // Disable adding files if no dataset is selected, or during loading/error/upload
-            disabled={!selectedDatasetId || loadingDatasets || !!datasetError || isUploading || processingStage === 'uploading'}
+            disabled={!selectedDatasetId || loadingDatasets || !!datasetError || isUploading || processingStage === 'uploading' ||
+      files.length >= MAX_CONCURRENT_FILES}
           />
-
+{files.length >= MAX_CONCURRENT_FILES && (
+  <p className="text-sm text-muted-foreground text-center mt-2">
+      Maximum of {MAX_CONCURRENT_FILES} files reached. Please upload or remove files.
+  </p>
+)}
           {/* File List */}
           {files.length > 0 && (
             <div id="tour-step-file-list-actions">
