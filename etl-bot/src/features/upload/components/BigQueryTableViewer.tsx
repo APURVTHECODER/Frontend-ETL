@@ -27,7 +27,7 @@ import {
     LineChart as LineChartIcon, PieChart as PieChartIcon, Dot , Trash2 ,History,Copy,
     ListFilter, // Added Filter icon
     MessageSquare,X,
-    FileSpreadsheet, Clock ,Sparkles , LightbulbIcon , AlertCircle , Play ,Settings2,Check,ChevronsUpDown,CheckCheck,    // ... existing icons ...
+    FileSpreadsheet, Clock ,Sparkles , LightbulbIcon , AlertCircle , Play ,Settings2,Check,ChevronsUpDown,CheckCheck, MessageSquarePlus   // ... existing icons ...
 } from "lucide-react";
 // import { useAuth } from '@/contexts/AuthContext';
 import {
@@ -67,6 +67,7 @@ import { saveAs } from 'file-saver';
 import { FilterConfig, ActiveFilters, ActiveFilterValue, FilterType } from '@/components/filters/filterTypes';
 import { parseISO, isValid } from 'date-fns'; // Import date-fns for parsing
 import { FilterControls } from "@/components/filters/FilterControls";
+import { FeedbackModal, type FeedbackModalProps } from "./feedback/FeedbackModal"; // <<<< MODIFY THIS LINE
 // import { ThemeToggle } from "./ThemeToggle";
 // --- Interfaces (Keep existing ones) ---
 
@@ -168,6 +169,8 @@ const BigQueryTableViewer: React.FC = () => {
     const [selectedAiColumns, setSelectedAiColumns] = useState<Set<string>>(new Set());
     const [isTablePopoverOpen, setIsTablePopoverOpen] = useState(false);
     const [isColumnPopoverOpen, setIsColumnPopoverOpen] = useState(false);
+    const [isFeedbackModalOpen, setIsFeedbackModalOpen] = useState(false);
+const [feedbackContext, setFeedbackContext] = useState<Partial<FeedbackModalProps>>({});
 // +++ MODIFICATION END +++
     const [filteredTables, setFilteredTables] = useState<TableInfo[]>([]);
     const [listTablesError, setListTablesError] = useState<string>("");
@@ -1703,6 +1706,75 @@ useEffect(() => {
             </div>
         );
     };
+        
+    
+// src/features/upload/components/BigQueryTableViewer.tsx
+    const handleOpenFeedbackModal = (contextType?: 'positive' | 'negative' | 'general') => {
+        let type = '';
+        // Let TypeScript infer the narrow type for currentJobStatus from jobStatus.state
+        const currentJobStatus = jobStatus?.state;
+        
+        // Explicitly type detailedStatusSummary as string | undefined to allow custom strings
+        let detailedStatusSummary: string | undefined = currentJobStatus; 
+
+        // Your existing logic to set detailedStatusSummary
+        if (jobStatus?.state === 'DONE' && jobError) {
+            detailedStatusSummary = 'FAILED_RESULTS_PROCESSING';
+        } else if (jobStatus?.state === 'DONE' && !jobError && jobResults && jobResults.rows.length === 0 && !isRunningJob){
+            detailedStatusSummary = "SUCCESS_NO_ROWS";
+        } else if (jobStatus?.state === 'DONE' && !jobError && jobResults && jobResults.rows.length > 0 && !isRunningJob){
+            detailedStatusSummary = "SUCCESS_WITH_ROWS";
+        } else if ((jobError || nlError) && !jobId) { 
+            detailedStatusSummary = "PRE_SUBMISSION_ERROR";
+        } else if (jobError && jobId && jobStatus?.state !== 'DONE') {
+            detailedStatusSummary = `FAILED_DURING_EXECUTION (${jobStatus?.state || 'UNKNOWN_STATE'})`;
+        }
+        // (You might want to add a default case for detailedStatusSummary if none of the above match
+        // and currentJobStatus is undefined, though `undefined` is acceptable for an optional prop)
+
+        if (contextType === 'positive') type = 'Positive Feedback';
+        if (contextType === 'negative') {
+            if (jobError || (detailedStatusSummary && detailedStatusSummary.startsWith("FAILED"))) type = 'Job Error';
+            else if (nlError) type = 'Misunderstood Prompt';
+            else type = 'Wrong Results'; // Default negative
+        }
+        
+        setFeedbackContext({
+            userPrompt: nlPrompt || undefined,
+            generatedSql: sql || undefined,
+            datasetId: fullDatasetId || undefined,
+            aiMode: aiMode,
+            selectedTables: selectedAiTables.size > 0 ? Array.from(selectedAiTables) : undefined,
+            selectedColumns: selectedAiColumns.size > 0 ? Array.from(selectedAiColumns) : undefined,
+            jobId: jobId || undefined,
+            jobStatusSummary: detailedStatusSummary, // This is now string | undefined
+            jobErrorMessage: jobError || nlError || resultsError || undefined,
+            pageContext: "/explorer", // Or derive more specifically if needed
+            initialFeedbackType: type // Pass the determined type
+        });
+        setIsFeedbackModalOpen(true);
+    };
+
+
+// Remove this as it's handled by passing initialFeedbackType to modal
+// const [feedbackTypeForModal, setFeedbackTypeForModal] = useState('');
+// useEffect(() => {
+//     if (isFeedbackModalOpen && feedbackTypeForModal) {
+//     }
+// }, [isFeedbackModalOpen, feedbackTypeForModal]);
+
+
+
+    // Helper state to pass pre-selected feedback type to modal, because modal's own state resets on open
+    const [feedbackTypeForModal, ] = useState('');
+    useEffect(() => {
+        if (isFeedbackModalOpen && feedbackTypeForModal) {
+            // This is a bit of a workaround to set the modal's internal state after it opens
+            // Ideally, the FeedbackModal would take an initialFeedbackType prop
+            // For now, let's assume this will trigger a re-render of the modal correctly.
+        }
+    }, [isFeedbackModalOpen, feedbackTypeForModal]);
+
     const renderTablesList = () => { /* ... NO CHANGES ... */
         if (!selectedDatasetId) return (<div className="text-center py-8 text-muted-foreground text-sm">Select a workspace first.</div>);
         if(loadingTables){return(<div className="flex justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-primary"/></div>);}
@@ -3222,6 +3294,7 @@ const renderEditorPane = () => {
                 locale={{ last: 'Finish Tour', skip: 'Skip', next: 'Next', back: 'Back' }}
             />
             <div className="flex h-full bg-background text-foreground overflow-hidden text-sm">
+
                 {/* Sidebar uses card background */}
                 <div id="tour-sidebar-wrapper"  className={`border-r border-border bg-card flex flex-col flex-shrink-0 transition-all duration-300 ease-in-out ${ sidebarCollapsed ? 'w-12' : 'w-64 md:w-72' }`} >
                     {/* Sidebar Top Section (Collapse Button) */}
@@ -3276,7 +3349,36 @@ const renderEditorPane = () => {
                     isOpen={isChatOpen}
                     onClose={() => setIsChatOpen(false)}
                 />
-
+<FeedbackModal
+    isOpen={isFeedbackModalOpen}
+    onOpenChange={setIsFeedbackModalOpen}
+    userPrompt={feedbackContext.userPrompt}
+    generatedSql={feedbackContext.generatedSql}
+    datasetId={feedbackContext.datasetId}
+    aiMode={feedbackContext.aiMode}
+    selectedTables={feedbackContext.selectedTables} // Already correct type
+    selectedColumns={feedbackContext.selectedColumns} // Already correct type
+    jobId={feedbackContext.jobId}
+    jobStatusSummary={feedbackContext.jobStatusSummary}
+    jobErrorMessage={feedbackContext.jobErrorMessage}
+    pageContext={feedbackContext.pageContext}
+    initialFeedbackType={feedbackContext.initialFeedbackType}// Pass it here
+/>
+                                <Tooltip>
+                    <TooltipTrigger asChild>
+                        <Button
+                            variant="outline"
+                            size="icon"
+                            className="fixed bottom-4 left-16 z-50 rounded-full h-12 w-12 shadow-lg" // Adjust position
+                            onClick={() => handleOpenFeedbackModal('general')}
+                        >
+                           <MessageSquarePlus className="h-6 w-6" />
+                        </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="right">
+                       Share Feedback or Suggestion
+                    </TooltipContent>
+                </Tooltip>
             </div> {/* End main layout div */}
         </TooltipProvider>
     );
