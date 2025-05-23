@@ -82,7 +82,7 @@ const AppControls: React.FC = () => { // Renamed from ViewSwitcher for clarity
                         <Button
                             variant="destructive"
                             size="icon"
-                            className="rounded-full shadow-lg h-9 w-9"
+                            className="rounded-full shadow-lg h-11 w-11 hover:bg-primary/90 text-primary-foreground"
                             onClick={handleLogout}
                         >
                             <LogOut className="h-4 w-4" />
