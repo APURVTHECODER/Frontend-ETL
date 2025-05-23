@@ -311,8 +311,8 @@ const handleDatasetCreated = useCallback(() => {
             // For now, let's assume `remainingSlots` logic is primary and this is defensive.
              toast({
                  variant: "destructive",
-                 title: "Internal Limit Adjustment",
-                 description: `Ensuring file queue does not exceed ${MAX_CONCURRENT_FILES}. Some files might have been unexpectedly trimmed.`
+                 title: "File Upload Limit Exceeded",
+                 description: `Ensuring file queue does not exceed ${MAX_CONCURRENT_FILES}. Some files have been skipped.`
              });
             return combinedFiles.slice(0, MAX_CONCURRENT_FILES);
         }
