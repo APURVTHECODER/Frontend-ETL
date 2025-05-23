@@ -10,6 +10,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/hooks/use-toast"
 // +++ MODIFICATION START +++
 // , Landmark, UploadCloud, ListChecks
+import { Checkbox } from "@/components/ui/checkbox" // +++ NEW IMPORT +++
+import { Input } from "@/components/ui/input"     // +++ NEW IMPORT +++
 import { Loader2 } from 'lucide-react'; // For loading state
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"; // For error state
 import { Terminal } from 'lucide-react'; // Icon for error alert
@@ -31,7 +33,8 @@ interface DatasetListApiResponse {
 export function UploadView() {
   const MAX_FILE_SIZE_MB = 50;
   const MAX_CONCURRENT_FILES = 5; // Define your limit
-  
+  const [isMultiHeaderMode, setIsMultiHeaderMode] = useState<boolean>(false); // +++ NEW STATE +++
+  const [headerDepth, setHeaderDepth] = useState<number | string>(2);       
   const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
   const [files, setFiles] = useState<ETLFile[]>([]);
   const [processingStage, setProcessingStage] = useState<ProcessingStage>('idle');
@@ -288,7 +291,10 @@ const handleDatasetCreated = useCallback(() => {
         errorMessage: null,
         uploadedAt: new Date(),
         // +++ MODIFICATION START +++
-        targetDatasetId: selectedDatasetId // Associate the currently selected dataset
+        targetDatasetId: selectedDatasetId, // Associate the currently selected dataset
+        isMultiHeader: isMultiHeaderMode,
+        headerDepth: isMultiHeaderMode && typeof headerDepth === 'number' ? headerDepth : undefined,
+        
         // +++ MODIFICATION END +++
       }));
 
@@ -320,7 +326,7 @@ const handleDatasetCreated = useCallback(() => {
       });
   // +++ MODIFICATION START +++
   // Depend on selectedDatasetId so new files get the correct target
-  }, [files, selectedDatasetId, toast, MAX_FILE_SIZE_BYTES, MAX_FILE_SIZE_MB, MAX_CONCURRENT_FILES]);
+  }, [files, selectedDatasetId, toast, MAX_FILE_SIZE_BYTES, MAX_FILE_SIZE_MB, MAX_CONCURRENT_FILES,isMultiHeaderMode, headerDepth]);
   // +++ MODIFICATION END +++
 
   // --- Function to update a single file's state ---
@@ -397,14 +403,15 @@ const handleDatasetCreated = useCallback(() => {
         detail?: string;
         // Add other possible error response fields if needed
       }
+      const etlPayload = {
+     object_name: object_name,
+     target_dataset_id: targetDataset,
+     is_multi_header: file.isMultiHeader, // From ETLFile object
+     header_depth: file.headerDepth      // From ETLFile object
+};
         // 3. Trigger ETL - PASS object_name AND target_dataset_id
-        const triggerResp = await axiosInstance.post<ApiErrorResponse>('/api/trigger-etl', {
-             object_name: object_name,         // The full GCS path including prefix
-             target_dataset_id: targetDataset // The BQ dataset to load into
-            
-        }
-      );
-        
+        const triggerResp = await axiosInstance.post<ApiErrorResponse>('/api/trigger-etl', etlPayload);
+        console.log(etlPayload)
       if (triggerResp.status !== 200 && triggerResp.status !== 202) { 
         throw new Error(`Failed to trigger processing: ${triggerResp.status} ${triggerResp.data?.detail || ''}`); 
 }
@@ -572,6 +579,64 @@ const handleDatasetCreated = useCallback(() => {
       </div>
       
       {/* --- END Dataset Selector Section --- */}
+        <div className="p-4 border rounded-lg bg-card shadow-sm space-y-3">
+          <div className="flex items-center space-x-2">
+            <Checkbox
+              id="multi-header-toggle"
+              checked={isMultiHeaderMode}
+              onCheckedChange={(checked) => setIsMultiHeaderMode(Boolean(checked))}
+              disabled={!selectedDatasetId || loadingDatasets || !!datasetError || isUploading || processingStage === 'uploading'}
+            />
+            <Label htmlFor="multi-header-toggle" className="text-sm font-medium">
+              Process files with multi-row headers
+            </Label>
+          </div>
+          {isMultiHeaderMode && (
+            <div className="pl-6 space-y-2"> {/* Indent if checkbox is checked */}
+              <Label htmlFor="header-depth-input" className="text-sm font-medium text-muted-foreground">
+                Number of header rows <span className="text-destructive">*</span>
+              </Label>
+              <Input
+                id="header-depth-input"
+                type="number"
+                value={headerDepth}
+                onChange={(e) => {
+                    const val = e.target.value;
+                    if (val === "") {
+                        setHeaderDepth(""); // Allow empty input for user to clear
+                    } else {
+                        const num = parseInt(val, 10);
+                        if (!isNaN(num) && num >= 1 && num <= 10) { // Min 1, Max 10 (or your preferred limit)
+                            setHeaderDepth(num);
+                        } else if (!isNaN(num) && num < 1) {
+                            setHeaderDepth(1); // Correct to min if below
+                        }
+                        // Do nothing if it's NaN or above max, keep current valid value or empty string
+                    }
+                }}
+                onBlur={() => { // Ensure a valid number on blur if input was left invalid/empty
+                    if (typeof headerDepth === 'string' && headerDepth === "") {
+                        setHeaderDepth(1); // Default to 1 if left empty
+                    } else if (typeof headerDepth === 'number' && headerDepth < 1) {
+                        setHeaderDepth(1);
+                    }
+                }}
+                placeholder="e.g., 2"
+                className="max-w-xs"
+                min="1"
+                max="10" // Sensible max to prevent huge reads
+                disabled={!selectedDatasetId || loadingDatasets || !!datasetError || isUploading || processingStage === 'uploading'}
+              />
+              <p className="text-xs text-muted-foreground">
+                Specify how many rows at the top of your tables constitute the headers.
+              </p>
+            </div>
+          )}
+           <p className="text-xs text-muted-foreground pt-1">
+             Enable this if your Excel files have titles spanning multiple rows. This setting applies to the next batch of files you add.
+          </p>
+        </div>
+        {/* +++ END NEW SECTION +++ */}
 
 
       {/* --- Upload Area and File List --- */}
