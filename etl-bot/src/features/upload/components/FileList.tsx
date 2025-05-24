@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/componen
 import { Upload, Trash2, Check, Loader2 } from 'lucide-react'; // Added Loader2
 import { ETLFile } from '../types';
 
+
 interface FileListProps {
   files: ETLFile[];
   onRemove: (id: string) => void;
@@ -12,6 +13,7 @@ interface FileListProps {
   onClearCompleted: () => void;
   isProcessing: boolean; // NEW PROP: indicates if any upload/processing is active
   isLoading: boolean; // NEW PROP: indicates if the upload button itself is loading
+  isProcessingOverall?: boolean; // A general flag if any backend processing is happening
 }
 
 export function FileList({
@@ -23,9 +25,9 @@ export function FileList({
   isLoading // Use this for the upload button loading state
 }: FileListProps) {
   const pendingFiles = files.filter(file => file.status === 'pending');
-  const completedFiles = files.filter(file => file.status === 'completed');
-  const errorFiles = files.filter(file => file.status === 'error');
-  const hasCompletedFiles = completedFiles.length > 0;
+  const completedSuccessfullyFiles = files.filter(file => file.status === 'completed_successfully');
+  const completedErrorFiles = files.filter(file => file.status === 'completed_error'); // If you want to count these separately
+const hasSuccessfullyCompletedFiles = completedSuccessfullyFiles.length > 0;
   const hasPendingFiles = pendingFiles.length > 0;
   const canUpload = hasPendingFiles && !isProcessing;
 
@@ -41,8 +43,8 @@ export function FileList({
            {/* More detailed status */}
           <div className="text-sm text-muted-foreground font-normal flex items-center gap-2">
             {pendingFiles.length > 0 && <span>{pendingFiles.length} Pending</span>}
-            {completedFiles.length > 0 && <span className="text-green-600">{completedFiles.length} Completed</span>}
-            {errorFiles.length > 0 && <span className="text-destructive">{errorFiles.length} Error(s)</span>}
+{completedSuccessfullyFiles.length > 0 && <span className="text-green-600">{completedSuccessfullyFiles.length} Succeeded</span>}
+{completedErrorFiles.length > 0 && <span className="text-orange-500">{completedErrorFiles.length} Ended with Errors</span>}
           </div>
         </CardTitle>
       </CardHeader>
@@ -68,7 +70,7 @@ export function FileList({
       {files.length > 0 && (
          <CardFooter className="flex justify-between border-t pt-4">
             <div>
-              {hasCompletedFiles && (
+              {hasSuccessfullyCompletedFiles && (
                 <Button
                   variant="outline"
                   size="sm"
