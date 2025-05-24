@@ -174,6 +174,9 @@ export function UploadView() {
   };
 
   const handleFilesAdded = useCallback((newFiles: File[]) => {
+    //     console.log(
+    //     `[handleFilesAdded EXECUTING] isMultiHeaderMode: ${isMultiHeaderMode}, headerDepth: ${headerDepth}, selectedDatasetId: ${selectedDatasetId}, files.length: ${files.length}`
+    // );
     const remainingSlots = MAX_CONCURRENT_FILES - files.length;
     const filesToConsider = newFiles.slice(0, remainingSlots);
 
@@ -224,9 +227,21 @@ export function UploadView() {
     if (validFiles.length === 0) {
         return;
     }
+const newETLFiles: ETLFile[] = validFiles.map((file): ETLFile => {
+    // Capture the values that will be used for this specific file
+    const currentIsMultiHeaderForThisFile = isMultiHeaderMode;
+    const currentHeaderDepthForThisFile = isMultiHeaderMode && typeof headerDepth === 'number' ? headerDepth : undefined;
 
-    const newETLFiles: ETLFile[] = validFiles.map((file): ETLFile => ({
-        id : uuidv4(),
+    // Log them
+    // console.log(
+    //     `[handleFilesAdded MAPPING FILE] For: ${file.name}, ` +
+    //     `isMultiHeaderMode from state: ${isMultiHeaderMode}, headerDepth from state: ${headerDepth}, ` +
+    //     `==> Assigning isMultiHeader: ${currentIsMultiHeaderForThisFile}, headerDepth: ${currentHeaderDepthForThisFile}`
+    // );
+
+    // Return the new ETLFile object
+    return {
+        id: uuidv4(),
         file,
         name: file.name,
         size: file.size,
@@ -236,10 +251,10 @@ export function UploadView() {
         errorMessage: null,
         uploadedAt: new Date(),
         targetDatasetId: selectedDatasetId,
-        isMultiHeader: isMultiHeaderMode,
-        headerDepth: isMultiHeaderMode && typeof headerDepth === 'number' ? headerDepth : undefined,
-    }));
-
+        isMultiHeader: currentIsMultiHeaderForThisFile, // Use the captured value
+        headerDepth: currentHeaderDepthForThisFile,     // Use the captured value
+    };
+});
       setFiles(prevFiles => {
         const existingNames = new Set(prevFiles.map(f => f.name));
         const uniqueNewFiles = newETLFiles.filter(nf => !existingNames.has(nf.name));
@@ -254,6 +269,7 @@ export function UploadView() {
              });
             return combinedFiles.slice(0, MAX_CONCURRENT_FILES);
         }
+        
         return combinedFiles;
       });
   }, [files, selectedDatasetId, toast, MAX_FILE_SIZE_BYTES, MAX_FILE_SIZE_MB, MAX_CONCURRENT_FILES, isMultiHeaderMode, headerDepth]);
@@ -352,7 +368,7 @@ export function UploadView() {
         const backendFileIdFromTrigger = triggerResp.data.file_id;
         const backendBatchIdFromTrigger = triggerResp.data.batch_id;
 
-        console.log(`HANDLE_UPLOAD: For frontend file ${file.id}, got backendFileId: ${backendFileIdFromTrigger}, backendBatchId: ${backendBatchIdFromTrigger}`);
+        // console.log(`HANDLE_UPLOAD: For frontend file ${file.id}, got backendFileId: ${backendFileIdFromTrigger}, backendBatchId: ${backendBatchIdFromTrigger}`);
 
         // CRITICAL FIX: Use updateFileState and wait for state update
         await new Promise<void>((resolve) => {
@@ -365,8 +381,8 @@ export function UploadView() {
           
           // Give the state update a chance to complete
           setTimeout(() => {
-            console.log(`HANDLE_UPLOAD: State updated for file ${file.id}. Current filesRef:`, 
-              filesRef.current.find(f => f.id === file.id));
+            // console.log(`HANDLE_UPLOAD: State updated for file ${file.id}. Current filesRef:`, 
+            //   filesRef.current.find(f => f.id === file.id));
             resolve();
           }, 100);
         });
@@ -476,28 +492,28 @@ export function UploadView() {
   const pollFileBatchStatus = useCallback(async (batchIdToPoll: string) => {
     // Use filesRef.current to get the latest files state
     const currentFiles = filesRef.current;
-    console.log(`POLL START: Polling for batch: ${batchIdToPoll}. Current UI files count (from ref): ${currentFiles.length}`);
-    console.log(`POLL START: UI Files details (from ref):`, JSON.parse(JSON.stringify(currentFiles)));
+    // console.log(`POLL START: Polling for batch: ${batchIdToPoll}. Current UI files count (from ref): ${currentFiles.length}`);
+    // console.log(`POLL START: UI Files details (from ref):`, JSON.parse(JSON.stringify(currentFiles)));
 
     try {
       const response = await axiosInstance.get<BatchStatusApiResponse>(`/api/etl-batch-status/${batchIdToPoll}`);
       const batchStatusData = response.data;
-      console.log(`POLL DATA for ${batchIdToPoll}:`, JSON.parse(JSON.stringify(batchStatusData)));
+      // console.log(`POLL DATA for ${batchIdToPoll}:`, JSON.parse(JSON.stringify(batchStatusData)));
 
       if (batchStatusData.files) {
         for (const backendFileId_from_poll in batchStatusData.files) {
           const backendFileDetail = batchStatusData.files?.[backendFileId_from_poll];
           if (!backendFileDetail) continue;
 
-          console.log(`POLL: Processing backend file ${backendFileId_from_poll} (status: ${backendFileDetail.status}) from batch ${batchIdToPoll}`);
+          // console.log(`POLL: Processing backend file ${backendFileId_from_poll} (status: ${backendFileDetail.status}) from batch ${batchIdToPoll}`);
 
           const frontendFileToUpdate = currentFiles.find(f => {
-            console.log(`POLL .find: UI File ID ${f.id}, UI backendBatchId: ${f.backendBatchId}, UI backendFileId: ${f.backendFileId} -- Comparing with Batch: ${batchIdToPoll}, BackendFile: ${backendFileId_from_poll}`);
+            // console.log(`POLL .find: UI File ID ${f.id}, UI backendBatchId: ${f.backendBatchId}, UI backendFileId: ${f.backendFileId} -- Comparing with Batch: ${batchIdToPoll}, BackendFile: ${backendFileId_from_poll}`);
             return f.backendBatchId === batchIdToPoll && f.backendFileId === backendFileId_from_poll;
           });
 
           if (frontendFileToUpdate) {
-            console.log(`POLL: Found UI file ${frontendFileToUpdate.id} (current status: ${frontendFileToUpdate.status}) for backend file ${backendFileId_from_poll}`);
+            // console.log(`POLL: Found UI file ${frontendFileToUpdate.id} (current status: ${frontendFileToUpdate.status}) for backend file ${backendFileId_from_poll}`);
             let newFrontendStatus: ETLFileStatus = frontendFileToUpdate.status;
 
             if (backendFileDetail.status === 'completed_success') {
@@ -508,18 +524,18 @@ export function UploadView() {
               newFrontendStatus = 'processing_backend';
             }
             
-            console.log(`POLL: Calculated newFrontendStatus for ${frontendFileToUpdate.id}: ${newFrontendStatus}`);
+            // console.log(`POLL: Calculated newFrontendStatus for ${frontendFileToUpdate.id}: ${newFrontendStatus}`);
 
             if (newFrontendStatus !== frontendFileToUpdate.status || 
                 (backendFileDetail.errorMessage || null) !== frontendFileToUpdate.errorMessage) {
-              console.log(`POLL: ==> Calling updateFileState for ${frontendFileToUpdate.id} from ${frontendFileToUpdate.status} to ${newFrontendStatus}`);
+              // console.log(`POLL: ==> Calling updateFileState for ${frontendFileToUpdate.id} from ${frontendFileToUpdate.status} to ${newFrontendStatus}`);
               updateFileState(frontendFileToUpdate.id, {
                 status: newFrontendStatus,
                 errorMessage: backendFileDetail.errorMessage || null,
                 progress: (newFrontendStatus === 'completed_successfully' || newFrontendStatus === 'completed_error') ? 100 : frontendFileToUpdate.progress,
               });
             } else {
-              console.log(`POLL: No UI status change needed for ${frontendFileToUpdate.id} (already ${frontendFileToUpdate.status})`);
+              // console.log(`POLL: No UI status change needed for ${frontendFileToUpdate.id} (already ${frontendFileToUpdate.status})`);
             }
           } else {
             console.warn(`POLL: UI file for backendFileId ${backendFileId_from_poll} in batch ${batchIdToPoll} NOT FOUND.`);
@@ -528,13 +544,13 @@ export function UploadView() {
       }
 
       if (batchStatusData.overallBatchStatus === "completed" || batchStatusData.overallBatchStatus === "completed_with_errors") {
-        console.log(`POLL: overallBatchStatus for ${batchIdToPoll} is terminal (${batchStatusData.overallBatchStatus}). Stopping poll.`);
+        // console.log(`POLL: overallBatchStatus for ${batchIdToPoll} is terminal (${batchStatusData.overallBatchStatus}). Stopping poll.`);
         stopPollingForFileBatch(batchIdToPoll);
         
         // Fallback UI update using current files from ref
         currentFiles.forEach(f => {
             if (f.backendBatchId === batchIdToPoll && f.status !== 'completed_successfully' && f.status !== 'completed_error' && f.status !== 'error') {
-                console.log(`POLL FALLBACK: Updating file ${f.id} to terminal state due to overall batch completion.`);
+                // console.log(`POLL FALLBACK: Updating file ${f.id} to terminal state due to overall batch completion.`);
                 updateFileState(f.id, { 
                   status: batchStatusData.overallBatchStatus === "completed" ? 'completed_successfully' : 'completed_error',
                   errorMessage: batchStatusData.overallBatchStatus === "completed_with_errors" ? (f.errorMessage || "Batch completed with errors.") : null,
@@ -543,7 +559,7 @@ export function UploadView() {
             }
         });
       }
-      console.log(`POLL END for batch: ${batchIdToPoll}`);
+      // console.log(`POLL END for batch: ${batchIdToPoll}`);
     } catch (error: any) {
         let errorMessage = "Polling failed";
         if (error instanceof (error as any).isAxiosError && error.response) {
@@ -571,7 +587,7 @@ export function UploadView() {
     if (pollingIntervalsRef.current[batchId]) {
         return; 
     }
-    console.log(`Setting up polling interval for batch ${batchId}.`);
+    // console.log(`Setting up polling interval for batch ${batchId}.`);
     
     pollingIntervalsRef.current[batchId] = setInterval(() => {
       pollFileBatchStatus(batchId); 
@@ -580,7 +596,7 @@ export function UploadView() {
 
   // Simplified useEffect for managing processingStage
   useEffect(() => {
-    console.log("EFFECT (Main Logic): Files array changed. Current files:", JSON.parse(JSON.stringify(files)));
+    // console.log("EFFECT (Main Logic): Files array changed. Current files:", JSON.parse(JSON.stringify(files)));
 
     let isAnyFileUploading = false;
     let areAnyFilesProcessingBackend = false;
@@ -593,7 +609,7 @@ export function UploadView() {
         if (file.backendBatchId && 
             file.status === 'processing_queued' && 
             !pollingIntervalsRef.current[file.backendBatchId]) {
-            console.log(`EFFECT_POLL_INIT: File ${file.id} (backendFileId: ${file.backendFileId}) needs polling. Batch: ${file.backendBatchId}.`);
+            // console.log(`EFFECT_POLL_INIT: File ${file.id} (backendFileId: ${file.backendFileId}) needs polling. Batch: ${file.backendBatchId}.`);
             // Perform first poll immediately and set up interval
             setTimeout(() => pollFileBatchStatus(file.backendBatchId!), 100);
             startPollingForFileBatch(file.backendBatchId);
