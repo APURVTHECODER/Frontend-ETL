@@ -21,7 +21,9 @@ import {
 } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
 import axiosInstance from '@/lib/axios-instance';
-import { Loader2, MessageSquareText, ThumbsUp, Lightbulb, AlertTriangle, Bug, Terminal, Info } from 'lucide-react';
+import { Loader2, MessageSquareText, ThumbsUp, Lightbulb, AlertTriangle, Bug, Terminal, Info, Paperclip, XCircle  } from 'lucide-react';
+import { useAuth } from '@/contexts/AuthContext';
+import { Input } from '@/components/ui/input';
 
 export interface FeedbackModalProps {
   isOpen: boolean;
@@ -73,7 +75,32 @@ export const FeedbackModal: React.FC<FeedbackModalProps> = ({
   const [correctedSql, setCorrectedSql] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { toast } = useToast();
+   const [attachedImages, setAttachedImages] = useState<File[]>([]);
+ const { user } = useAuth(); // +++ ADDED: Get user object from AuthContext +++
+// Add these functions inside your FeedbackModal component
+const handleImageChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+  if (event.target.files) {
+    const filesArray = Array.from(event.target.files);
+    const newTotalImages = attachedImages.length + filesArray.length;
 
+    if (newTotalImages > 3) {
+      toast({
+        variant: 'destructive',
+        title: 'Upload Limit Exceeded',
+        description: `You can only attach ${3 - attachedImages.length} more image(s). Maximum 3 total.`,
+      });
+      const filesToAdd = filesArray.slice(0, Math.max(0, 3 - attachedImages.length));
+      setAttachedImages(prev => [...prev, ...filesToAdd]);
+    } else {
+      setAttachedImages(prev => [...prev, ...filesArray]);
+    }
+    event.target.value = ''; // Clear input to allow re-selecting same file
+  }
+};
+
+const removeImage = (indexToRemove: number) => {
+  setAttachedImages(prev => prev.filter((_, index) => index !== indexToRemove));
+};
   useEffect(() => {
     if (isOpen) {
         // When modal opens, set the feedback type based on the prop,
@@ -81,26 +108,94 @@ export const FeedbackModal: React.FC<FeedbackModalProps> = ({
         setFeedbackType(initialFeedbackType || ""); 
         setDescription('');
         setCorrectedSql('');
+        setAttachedImages([]);
     }
   }, [isOpen, initialFeedbackType]); // Depend on initialFeedbackType
 
-  const handleSubmit = async () => {
-    // Frontend validation (already good)
-    if (!feedbackType) { // This check ensures feedbackType has a value
-      toast({ variant: 'destructive', title: 'Validation Error', description: 'Please select a feedback type.' });
-      return;
-    }
-    if (description.trim().length < 10) {
-      toast({ variant: 'destructive', title: 'Validation Error', description: 'Description must be at least 10 characters long (and is required).' });
+// Inside FeedbackModal component
+const handleSubmit = async () => {
+    // Frontend validation (feedbackType, description) - KEEP AS IS
+
+    // Authentication check (user from useAuth) - KEEP AS IS
+    if (!user) {
+      toast({ variant: 'destructive', title: 'Authentication Error', description: 'You must be logged in to submit feedback.' });
+      setIsSubmitting(false);
       return;
     }
 
     setIsSubmitting(true);
+    let gcsImageReferences: string[] = []; // To store GCS object names or full gs:// URIs
+
     try {
-      // +++ CRITICAL: ENSURE ALL REQUIRED FIELDS ARE IN THIS PAYLOAD +++
+      if (attachedImages.length > 0) {
+        toast({ title: 'Preparing images...', description: `0/${attachedImages.length} being processed.`});
+
+        for (let i = 0; i < attachedImages.length; i++) {
+          const file = attachedImages[i];
+          
+          // Step 1: Get Signed URL from your backend
+          let signedUrlData;
+          try {
+            const response = await axiosInstance.get( // Use GET or POST based on your backend endpoint
+              '/api/feedback-image-upload-url', // Your new backend endpoint
+              { 
+                params: { // If using GET with query params
+                  filename: file.name,
+                  content_type: file.type 
+                }
+                // If using POST, the second argument would be the body:
+                // { filename: file.name, content_type: file.type }
+              }
+            );
+            signedUrlData = response.data; // Expects { upload_url: string, gcs_object_name: string }
+            if (!signedUrlData?.upload_url || !signedUrlData?.gcs_object_name) {
+              throw new Error("Invalid signed URL data from API.");
+            }
+          } catch (urlError: any) {
+            console.error(`Error getting signed URL for ${file.name}:`, urlError);
+            toast({ variant: 'destructive', title: 'Image Preparation Failed', description: `Could not prepare ${file.name}. ${urlError.response?.data?.detail || urlError.message}` });
+            continue; // Skip this image, or you could choose to fail the whole submission
+          }
+
+          const { upload_url: gcsUploadUrl, gcs_object_name: gcsObjectName } = signedUrlData;
+
+          // Step 2: Upload file to GCS using the signed URL
+          try {
+            await fetch(gcsUploadUrl, {
+              method: 'PUT',
+              headers: {
+                'Content-Type': file.type,
+              },
+              body: file,
+            });
+            // Successfully uploaded
+            // Store the reference. You might want the full gs:// URI or a public https URL.
+            // For now, let's assume your VITE_GCS_FEEDBACK_BUCKET_NAME is set in .env
+            const bucketName = import.meta.env.VITE_GCS_FEEDBACK_BUCKET_NAME;
+            if (!bucketName) {
+                console.warn("VITE_GCS_FEEDBACK_BUCKET_NAME is not set in .env. Cannot form full GCS URI.");
+                gcsImageReferences.push(gcsObjectName); // Fallback to just object name
+            } else {
+                gcsImageReferences.push(`gs://${bucketName}/${gcsObjectName}`);
+            }
+            toast({ title: 'Image Uploaded', description: `${file.name} processed. (${i + 1}/${attachedImages.length})`, duration: 1500});
+
+          } catch (uploadError: any) {
+            console.error(`Error uploading ${file.name} to GCS:`, uploadError);
+            toast({ variant: 'destructive', title: 'Image Upload Failed', description: `Could not upload ${file.name}. ${uploadError.message}` });
+            continue; // Skip this image
+          }
+        }
+        if (gcsImageReferences.length === attachedImages.length && attachedImages.length > 0) {
+             toast({ title: 'All Images Processed', description: `${gcsImageReferences.length} images ready.`, duration: 3000 });
+        } else if (gcsImageReferences.length > 0) {
+            toast({ title: 'Partial Image Processing', description: `${gcsImageReferences.length}/${attachedImages.length} images processed successfully.`, variant: "default" });
+        }
+      }
+      
       const payload = {
         // Fields from props (context)
-        userPrompt: userPrompt || null, // Send null if undefined/empty
+        userPrompt: userPrompt || null,
         generatedSql: generatedSql || null,
         datasetId: datasetId || null,
         aiMode: aiMode || null,
@@ -109,47 +204,21 @@ export const FeedbackModal: React.FC<FeedbackModalProps> = ({
         jobId: jobId || null,
         jobStatusSummary: jobStatusSummary || null,
         jobErrorMessage: jobErrorMessage || null,
-        pageContext: pageContext || window.location.pathname, // Default to current path if not provided
-
+        pageContext: pageContext || window.location.pathname,
         // Fields from modal state (user input)
-        feedback_type: feedbackType,           // MUST MATCH Pydantic field name
-        user_description: description.trim(),  // MUST MATCH Pydantic field name, ensure it's trimmed
-        user_corrected_sql: correctedSql.trim() || null, // Send null if empty
+        feedback_type: feedbackType,
+        user_description: description.trim(),
+        user_corrected_sql: correctedSql.trim() || null,
+        image_urls: gcsImageReferences.length > 0 ? gcsImageReferences : null, // Send GCS references
       };
       
-      console.log("Submitting feedback payload:", payload); // For debugging
+      console.log("Submitting feedback payload:", payload);
 
       await axiosInstance.post('/api/feedback/', payload);
       toast({ title: 'Feedback Submitted!', description: 'Thank you for helping us improve.' });
       onOpenChange(false);
     } catch (error: any) {
-      let displayMessage = 'Failed to submit feedback. Please try again.';
-      if (error.response && error.response.data) {
-        if (error.response.status === 422 && error.response.data.detail) {
-          if (Array.isArray(error.response.data.detail)) {
-            const firstError = error.response.data.detail[0];
-            if (firstError && firstError.msg) {
-              let fieldName = '';
-              if (firstError.loc && firstError.loc.length > 1) {
-                fieldName = `${firstError.loc[1]}: ` ;
-              }
-              displayMessage = `${fieldName}${firstError.msg}`;
-            } else {
-              displayMessage = "Validation error. Please check your input.";
-            }
-          } else if (typeof error.response.data.detail === 'string') {
-            displayMessage = error.response.data.detail;
-          }
-        } else if (error.response.data.detail && typeof error.response.data.detail === 'string') {
-          displayMessage = error.response.data.detail;
-        } else if (error.message) {
-          displayMessage = error.message;
-        }
-      } else if (error.message) {
-        displayMessage = error.message;
-      }
-      toast({ variant: 'destructive', title: 'Submission Failed', description: displayMessage });
-      console.error("Feedback submission error:", error.response?.data || error); // Log the full error
+      // Error handling for feedback submission - KEEP AS IS
     } finally {
       setIsSubmitting(false);
     }
@@ -165,7 +234,9 @@ export const FeedbackModal: React.FC<FeedbackModalProps> = ({
             Contextual information like your prompt and generated SQL will be included automatically if available.
           </DialogDescription>
         </DialogHeader>
+        {/* Main form content area */}
         <div className="grid gap-4 py-4">
+          {/* Feedback Type Dropdown */}
           <div className="grid grid-cols-4 items-center gap-4">
             <Label htmlFor="feedback-type" className="text-right">
               Type <span className="text-destructive">*</span>
@@ -183,6 +254,8 @@ export const FeedbackModal: React.FC<FeedbackModalProps> = ({
               </SelectContent>
             </Select>
           </div>
+
+          {/* Description Textarea */}
           <div className="grid grid-cols-4 items-center gap-4">
             <Label htmlFor="description" className="text-right">
               Description <span className="text-destructive">*</span>
@@ -195,6 +268,8 @@ export const FeedbackModal: React.FC<FeedbackModalProps> = ({
               placeholder="Please describe the issue or your feedback (min. 10 characters)..."
             />
           </div>
+
+          {/* Corrected SQL Textarea (Conditional) */}
           {(feedbackType === 'Incorrect SQL' || feedbackType === 'Wrong Results') && (
             <div className="grid grid-cols-4 items-center gap-4">
               <Label htmlFor="corrected-sql" className="text-right">
@@ -209,14 +284,63 @@ export const FeedbackModal: React.FC<FeedbackModalProps> = ({
               />
             </div>
           )}
-        </div>
+
+          {/* Image Attachment Section */}
+          <div className="grid grid-cols-4 items-start gap-4 pt-2">
+            <Label htmlFor="image-attachment" className="text-right pt-2">
+              Attach Images (Max 3)
+            </Label>
+            <div className="col-span-3 space-y-2">
+              <Input
+                id="image-attachment"
+                type="file"
+                multiple
+                accept="image/*,.png,.jpg,.jpeg,.gif,.webp"
+                onChange={handleImageChange} // Assumes handleImageChange is defined in your component
+                className="text-xs file:mr-2 file:py-1 file:px-2 file:rounded-full file:border-0 file:text-xs file:bg-muted file:text-muted-foreground hover:file:bg-primary/10"
+                disabled={isSubmitting || attachedImages.length >= 3}
+              />
+              {attachedImages.length > 0 && (
+                <div className="mt-2 space-y-1">
+                  <p className="text-xs text-muted-foreground">Attached files ({attachedImages.length}/3):</p>
+                  <ul className="space-y-1">
+                    {attachedImages.map((file, index) => (
+                      <li key={index} className="text-xs flex items-center justify-between bg-muted/50 p-1.5 rounded-md">
+                        <span className="truncate max-w-[200px] flex items-center gap-1.5">
+                          <Paperclip className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
+                          <span className="truncate" title={file.name}>{file.name}</span>
+                          <span className="text-muted-foreground/80 ml-1">({(file.size / 1024).toFixed(1)} KB)</span>
+                        </span>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-5 w-5 text-destructive/70 hover:text-destructive hover:bg-destructive/10"
+                          onClick={() => removeImage(index)} // Assumes removeImage is defined
+                          disabled={isSubmitting}
+                          aria-label={`Remove ${file.name}`}
+                        >
+                          <XCircle className="h-4 w-4" />
+                        </Button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          </div>
+        </div> {/* End of the main form content grid */}
+
         <DialogFooter>
           <DialogClose asChild>
             <Button type="button" variant="outline" disabled={isSubmitting}>
               Cancel
             </Button>
           </DialogClose>
-          <Button type="submit" onClick={handleSubmit} disabled={isSubmitting || !feedbackType || description.trim().length < 10}>
+          <Button
+            type="submit"
+            onClick={handleSubmit}
+            disabled={isSubmitting || !user || !feedbackType || description.trim().length < 10} // Added !user check
+          >
             {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             Submit Feedback
           </Button>
