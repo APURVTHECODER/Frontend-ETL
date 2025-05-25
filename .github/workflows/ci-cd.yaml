@@ -16,6 +16,7 @@ env:
   GCP_WORKLOAD_IDENTITY_PROVIDER: 'projects/1076741205751/locations/global/workloadIdentityPools/github-actions-pool/providers/github-provider'
   GCP_SERVICE_ACCOUNT: 'github-actions-deployer@crafty-tracker-457215-g6.iam.gserviceaccount.com'
   BACKEND_REPO: APURVTHECODER/Backend-ETL
+  GCS_FEEDBACK_BUCKET_NAME: "feedbackonly"
 
 jobs:
   test:
