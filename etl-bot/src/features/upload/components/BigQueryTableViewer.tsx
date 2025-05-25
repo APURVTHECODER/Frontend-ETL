@@ -27,7 +27,8 @@ import {
     LineChart as LineChartIcon, PieChart as PieChartIcon, Dot , Trash2 ,History,Copy,
     ListFilter, // Added Filter icon
     MessageSquare,X,
-    FileSpreadsheet, Clock ,Sparkles , LightbulbIcon , AlertCircle , Play ,Settings2,Check,ChevronsUpDown,CheckCheck, MessageSquarePlus   // ... existing icons ...
+    FileSpreadsheet, Clock ,Sparkles , LightbulbIcon , AlertCircle , Play ,Settings2,Check,ChevronsUpDown,CheckCheck, MessageSquarePlus,   // ... existing icons ...
+    Lightbulb
 } from "lucide-react";
 // import { useAuth } from '@/contexts/AuthContext';
 import {
@@ -1643,6 +1644,7 @@ useEffect(() => {
      const renderSidebarContent = () => { /* ... NO CHANGES ... */
         return (
              <div className="p-3 flex flex-col h-full text-sm">
+                
                             <div className="mb-3 border-b pb-3 flex-shrink-0">
                 <label htmlFor="dataset-select" className="block text-xs font-medium text-muted-foreground mb-1.5">
                     Select Workspace
@@ -2488,8 +2490,19 @@ onFocus={() => {
                                 <AlertCircle className="h-3.5 w-3.5 mr-2 flex-shrink-0" /> {nlError}
                             </p>
                         </div>
+                        
                     )}
-
+                                        {nlError && (
+                        <div className="flex items-start p-2.5 text-xs rounded-md 
+                                        bg-blue-50 dark:bg-blue-900/40 
+                                        border border-blue-200 dark:border-blue-700/60 
+                                        text-blue-700 dark:text-blue-400">
+                            <Lightbulb className="h-4 w-4 mr-2 flex-shrink-0 mt-0.5 text-blue-500 dark:text-blue-300" />
+                            <span>
+                                <strong>Hint:</strong> AI might struggle with ambiguous terms. Try being more specific with table or column names. Using "SEMI-AUTO" mode to select tables/columns can greatly improve accuracy.
+                            </span>
+                        </div>
+                                            )}
                     {/* Suggestions Dropdown */}
                     {showSuggestions && (
                         <div
@@ -2812,7 +2825,26 @@ onFocus={() => {
     const renderResultsContent = () => {
         // --- Initial checks (Loading, Error, No Original Results) ---
         if (isRunningJob && jobId) return ( <div className="flex justify-center items-center h-full p-4"><div className="text-center"><Loader2 className="h-8 w-8 animate-spin mx-auto mb-3 text-primary"/><p className="text-lg font-medium mb-1 text-foreground">Running Query...</p><p className="text-sm text-muted-foreground">Job ID: {jobId}</p></div></div> );
-        if (jobError) return ( <Alert variant="destructive" className="m-4"><Terminal className="h-4 w-4"/><AlertTitle>Query Error</AlertTitle><AlertDescription><p>{jobError}</p><Button  id="tour-run-query-button"  onClick={submitSqlJob} variant="outline" size="sm" className="mt-3 text-xs h-7"><RefreshCw className="mr-1.5 h-3 w-3"/>Try Again</Button></AlertDescription></Alert> );
+        if (jobError) return ( 
+                      <div className="p-4 space-y-3"> {/* Add space-y for spacing between alert and hint */}
+        
+        <Alert variant="destructive" className="m-4"><Terminal className="h-4 w-4"/><AlertTitle>Query Error</AlertTitle><AlertDescription><p>{jobError}</p><Button  id="tour-run-query-button"  onClick={submitSqlJob} variant="outline" size="sm" className="mt-3 text-xs h-7"><RefreshCw className="mr-1.5 h-3 w-3"/>Try Again</Button></AlertDescription></Alert>
+
+
+                    <div className="flex items-start p-2.5 text-xs rounded-md 
+                                    bg-blue-50 dark:bg-blue-900/40 
+                                    border border-blue-200 dark:border-blue-700/60 
+                                    text-blue-700 dark:text-blue-400">
+                        <Lightbulb className="h-4 w-4 mr-2 flex-shrink-0 mt-0.5 text-blue-500 dark:text-blue-300" />
+                        <span>
+                            <strong>Hint:</strong> Please try using the exact column and table names as they appear in your workspace schema. Spelling and case sensitivity matter! Consider using the AI Assist in "SEMI-AUTO" mode to help select valid names.
+                        </span>
+                    </div>
+                    {/* +++ END SUGGESTION BOX +++ */}
+                </div>
+
+            
+         );
         if (loadingResults && !jobResults?.rows) return ( <div className="flex justify-center items-center h-full p-4"><div className="text-center"><Loader2 className="h-8 w-8 animate-spin mx-auto mb-3 text-primary"/><p className="text-sm text-muted-foreground">Loading results...</p></div></div> ); // Show loading only if NO results yet
         if (resultsError) return ( <Alert variant="destructive" className="m-4"><Terminal className="h-4 w-4"/><AlertTitle>Results Error</AlertTitle><AlertDescription>{resultsError}</AlertDescription></Alert> );
         if (!jobResults) return ( <div className="flex items-center justify-center h-full text-muted-foreground p-6"><div className="text-center"><ListTree className="h-12 w-12 mx-auto mb-4 opacity-20"/><h3 className="text-lg font-medium mb-2 text-foreground">No Query Results</h3><p className="text-sm">Run a query using the editor above.</p></div></div> );
@@ -3336,8 +3368,20 @@ onFocus={() => {
                 {/* Sidebar uses card background */}
                 <div id="tour-sidebar-wrapper"  className={`border-r border-border bg-card flex flex-col flex-shrink-0 transition-all duration-300 ease-in-out ${ sidebarCollapsed ? 'w-12' : 'w-64 md:w-72' }`} >
                     {/* Sidebar Top Section (Collapse Button) */}
+                    
                     <div className={`p-2 border-b border-border flex ${sidebarCollapsed?'justify-center':'justify-end'} flex-shrink-0`}>
+{!sidebarCollapsed && (
+    <div className="flex-grow flex justify-center items-center mr-2"> 
+        <div className="flex items-center gap-1.5"> 
+            <Sparkles className="h-5 w-5 text-primary flex-shrink-0" />
+            <h1 className="text-md font-semibold text-foreground truncate">
+                TransformEXL AI
+            </h1>
+        </div>
+    </div>
+)}
                          <Tooltip> <TooltipTrigger asChild><Button variant="ghost" size="icon" className="h-7 w-7" onClick={()=>setSidebarCollapsed(!sidebarCollapsed)}>{sidebarCollapsed?<ChevronRight className="h-4 w-4"/>:<ChevronLeft className="h-4 w-4"/>}</Button></TooltipTrigger><TooltipContent side="right">{sidebarCollapsed?'Expand':'Collapse'}</TooltipContent></Tooltip>
+                         
                     </div>
                     {/* Sidebar Main Content (Icons or Full View) */}
                     <div className="flex-grow overflow-hidden">

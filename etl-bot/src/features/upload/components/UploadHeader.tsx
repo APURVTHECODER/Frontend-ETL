@@ -9,7 +9,7 @@ export function UploadHeader() {
           <div className="bg-primary/10 p-2 rounded-md">
             <FileSpreadsheet className="h-6 w-6 text-primary" />
           </div>
-          <h1 className="text-2xl font-semibold">TransformEXL Ai</h1>
+          <h1 className="text-2xl font-semibold">TransformEXL AI</h1>
         </div>
         <ThemeToggle />
       </div>

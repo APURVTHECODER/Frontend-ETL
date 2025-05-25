@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/hooks/use-toast"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
-import { Loader2 } from 'lucide-react';
+import { AlertTriangle, BookOpenCheck, Info, Loader2 } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Terminal } from 'lucide-react';
 import { Label } from '@/components/ui/label';
@@ -785,6 +785,35 @@ const newETLFiles: ETLFile[] = validFiles.map((file): ETLFile => {
               Process files with multi-row headers
             </Label>
           </div>
+            <div className="flex items-start p-2 text-xs rounded-md bg-orange-50 dark:bg-orange-900/30 border border-orange-200 dark:border-orange-700/50 text-orange-700 dark:text-orange-300">
+            <Info className="h-4 w-4 mr-2 flex-shrink-0 mt-0.5" /> {/* Or BeakerIcon */}
+            <span>
+              This multi-header feature is currently in Beta Phase. Results may vary, and we appreciate your feedback!
+            </span>
+          </div>
+                        <div className="flex items-start p-2 text-xs rounded-md bg-yellow-50 dark:bg-yellow-900/40 border border-yellow-300 dark:border-yellow-700/60 text-yellow-700 dark:text-yellow-300 mt-2">
+                <AlertTriangle className="h-4 w-4 mr-2 flex-shrink-0 mt-0.5" />
+                <span>
+                  <strong>Important:</strong> If using multi-row headers, all tables within a single uploaded Excel file (across all sheets, if applicable) are expected to have the <strong>same number of header rows</strong> as specified above.
+                </span>
+              </div>
+              {/* +++ NEW SUGGESTION BOX for Documentation +++ */}
+              <div className="flex items-start p-2 text-xs rounded-md bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-700/50 text-green-700 dark:text-green-400 mt-2">
+                <BookOpenCheck className="h-4 w-4 mr-2 flex-shrink-0 mt-0.5" />
+                <span>
+                  We highly recommend reviewing the 
+                  <a 
+                    href="https://guidance-arch.github.io/TransformEXLAi-Guide/" // Replace with your actual documentation link for this feature
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="font-medium underline hover:text-green-800 dark:hover:text-green-300 mx-1"
+                  >
+                    documentation
+                  </a> 
+                  for this feature before use.
+                </span>
+              </div>
+              {/* +++ END NEW SUGGESTION BOX +++ */}
           {isMultiHeaderMode && (
             <div className="pl-6 space-y-2"> {/* Indent if checkbox is checked */}
               <Label htmlFor="header-depth-input" className="text-sm font-medium text-muted-foreground">

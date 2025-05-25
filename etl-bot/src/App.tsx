@@ -24,6 +24,7 @@ import { Database, UploadCloud, LogOut, Loader2 } from "lucide-react";
 import { auth } from './firebase-config';
 import { signOut } from 'firebase/auth';
 import Joyride, { Step, CallBackProps, STATUS } from 'react-joyride'; // +++ Joyride Import +++
+import { AppFooter } from './features/upload/components/Footer';
 
 const EXPLORER_PATH = "/explorer";
 const UPLOAD_PATH = "/upload";
@@ -183,6 +184,7 @@ function AppContent() {
         if (loading) {
          return <div className="flex items-center justify-center h-screen"><Loader2 className="h-8 w-8 animate-spin text-primary"/></div>;
     }
+       const FOOTER_HEIGHT_ESTIMATE = 'pb-16 sm:pb-12'; // e.g., pb-12 for ~3rem, pb-16 for ~4rem
     return (
         <>
                     <Joyride
@@ -223,8 +225,12 @@ function AppContent() {
                     } />
                 </Routes>
             </main>
-            <AppControls />
-            <Toaster />
+                {/* Floating Action Buttons and Toaster - these will be above the footer */}
+                {user && <AppControls />} {/* Show controls only if user is logged in */}
+                <Toaster />
+
+                {/* Render Footer Conditionally (e.g., only when user is logged in) */}
+                {user && <AppFooter />} {/* +++ ADD THE FOOTER HERE +++ */}
         </div>
                 </>
     );
