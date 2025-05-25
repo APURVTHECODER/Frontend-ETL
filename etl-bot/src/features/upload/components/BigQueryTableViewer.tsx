@@ -130,6 +130,19 @@ type ActiveVisualizationConfig = {
     y_axis_columns: string[];
     rationale?: string;
   };
+  const truncateHeader = (fullName: string, maxLength = 25, maxParts = 2): string => {
+    if (fullName.length <= maxLength) {
+        return fullName;
+    }
+    const parts = fullName.split('_');
+    if (parts.length > maxParts && maxParts > 0) { // Ensure maxParts is positive
+        // Take last 'maxParts' parts if they are shorter than maxLength
+        const shortName = "..." + parts.slice(-maxParts).join('_');
+        if (shortName.length <= maxLength) return shortName;
+    }
+    // Fallback to character limit if above doesn't apply or is still too long
+    return fullName.substring(0, maxLength - 3) + "...";
+};
 const BigQueryTableViewer: React.FC = () => {
       const [userJustSelectedSuggestion, setUserJustSelectedSuggestion] = useState(false);
         // +++ Joyride State for BigQueryTableViewer Tour +++
@@ -2076,46 +2089,40 @@ useEffect(() => {
 
             <table className="w-full text-xs" style={{ tableLayout: 'auto' }}>
 
-                <thead className="sticky top-0 bg-muted z-10">
-
-                    <tr>
-
-                        {previewColumns.map(c=>(
-
-                            <th key={c} className="px-2 py-1.5 text-left font-medium text-muted-foreground border-b border-r last:border-r-0 whitespace-nowrap">
-
-                                <div className="flex items-center cursor-pointer group" onClick={()=>handlePreviewSort(c)}>
-
-                                    <span>{c}</span>
-
+<thead className="sticky top-0 bg-muted z-10">
+    <tr>
+        {previewColumns.map(colName => { // Changed 'c' to 'colName' for clarity
+            const displayColName = truncateHeader(colName); // +++ APPLY TRUNCATION +++
+            return (
+                <th key={colName} className="px-2 py-1.5 text-left font-medium text-muted-foreground border-b border-r last:border-r-0 whitespace-nowrap">
+                    {/* +++ WRAP IN TOOLTIP +++ */}
+                    <TooltipProvider delayDuration={200}>
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <div className="flex items-center cursor-pointer group" onClick={() => handlePreviewSort(colName)}>
+                                    <span className="truncate" title={colName}>{displayColName}</span> {/* Ensure span itself can truncate if needed */}
                                     <div className="ml-1 text-muted-foreground/50 group-hover:text-muted-foreground">
-
-                                        {previewSortConfig?.key===c ? 
-
-                                            (previewSortConfig.direction==='asc' ? 
-
+                                        {previewSortConfig?.key === colName ? 
+                                            (previewSortConfig.direction === 'asc' ? 
                                                 <SortAsc className="h-3 w-3"/> : 
-
                                                 <SortDesc className="h-3 w-3"/>
-
                                             ) : 
-
                                             <ArrowUpDown className="h-3 w-3"/>
-
                                         }
-
                                     </div>
-
                                 </div>
-
-                            </th>
-
-                        ))}
-
-                    </tr>
-
-                </thead>
-
+                            </TooltipTrigger>
+                            <TooltipContent side="top" className="text-xs max-w-xs break-all bg-popover text-popover-foreground">
+                                <p>{colName}</p> {/* Show full name in tooltip */}
+                            </TooltipContent>
+                        </Tooltip>
+                    </TooltipProvider>
+                    {/* +++ END WRAP IN TOOLTIP +++ */}
+                </th>
+            );
+        })}
+    </tr>
+</thead>
                 <tbody className="font-mono divide-y divide-border text-foreground">
 
                     {previewRows.map((r,i)=>(
@@ -2844,28 +2851,40 @@ onFocus={() => {
                     <div className="h-full overflow-y-auto"> {/* Explicitly for VERTICAL scroll */}
                         <div className="overflow-x-auto"> {/* Explicitly for HORIZONTAL scroll */}
                             <table className="w-full text-xs" style={{ tableLayout: 'auto' }}> {/* Let table define its width */}
-                                <thead className="sticky top-0 bg-muted z-10">
-                                    <tr>{cols.map(c => (
-                                        <th key={c} className="px-2 py-1.5 text-left font-medium text-muted-foreground border-b border-r last:border-r-0 whitespace-nowrap">
-                                            <div className="flex items-center" title={c}>
-                                                <span>{c}</span> {/* Removed truncate to allow full header to be seen on scroll */}
-                                                {jobResults.schema && (
-                                                    <TooltipProvider delayDuration={300}>
-                                                        <Tooltip>
-                                                            <TooltipTrigger asChild>
-                                                                <Info className="ml-1 h-3 w-3 text-muted-foreground/50 hover:text-muted-foreground"/>
-                                                            </TooltipTrigger>
-                                                            <TooltipContent className="text-xs">
-                                                                Type: {jobResults.schema.find(f => f.name === c)?.type ?? '?'}<br/>
-                                                                Mode: {jobResults.schema.find(f => f.name === c)?.mode ?? '?'}
-                                                            </TooltipContent>
-                                                        </Tooltip>
-                                                    </TooltipProvider>
-                                                )}
-                                            </div>
-                                        </th>
-                                    ))}</tr>
-                                </thead>
+<thead className="sticky top-0 bg-muted z-10">
+    <tr>{cols.map(colName => { // Changed 'c' to 'colName'
+        const displayColName = truncateHeader(colName); // +++ APPLY TRUNCATION +++
+        const columnSchema = jobResults.schema?.find(f => f.name === colName); // For type/mode in tooltip
+
+        return (
+            <th key={colName} className="px-2 py-1.5 text-left font-medium text-muted-foreground border-b border-r last:border-r-0 whitespace-nowrap">
+                {/* +++ WRAP IN TOOLTIP +++ */}
+                <TooltipProvider delayDuration={200}>
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <div className="flex items-center" title={colName}> {/* title attribute on div as well for native browser tooltip */}
+                                <span className="truncate">{displayColName}</span>
+                                {columnSchema && (
+                                    <Info className="ml-1 h-3 w-3 text-muted-foreground/50 hover:text-muted-foreground cursor-help"/>
+                                )}
+                            </div>
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="text-xs max-w-xs break-all bg-popover text-popover-foreground">
+                            <p className="font-semibold">{colName}</p> {/* Full name */}
+                            {columnSchema && (
+                                <>
+                                    <p className="mt-1">Type: {columnSchema.type}</p>
+                                    <p>Mode: {columnSchema.mode}</p>
+                                </>
+                            )}
+                        </TooltipContent>
+                    </Tooltip>
+                </TooltipProvider>
+                {/* +++ END WRAP IN TOOLTIP +++ */}
+            </th>
+        );
+    })}</tr>
+</thead>
                                 <tbody className="font-mono divide-y divide-border text-foreground">
                                     {dataToRender.map((r, i) => (
                                         <tr key={i} className="hover:bg-muted/50">
