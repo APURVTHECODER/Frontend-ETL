@@ -1,27 +1,23 @@
-// src/features/upload/UploadView.tsx
-import { useState, useCallback,useEffect,useMemo  } from 'react';
+import { useState, useCallback,useEffect,useMemo, useRef  } from 'react';
 import { UploadHeader } from './components/UploadHeader';
 import { UploadArea } from './components/UploadArea';
 import { FileList } from './components/FileList';
 import { ProcessingStatus } from './components/ProcessingStatus';
 import axiosInstance from '@/lib/axios-instance';
-import { ETLFile, ProcessingStage } from './types';
+import { ApiErrorResponse, BatchStatusApiResponse, ETLFile, ETLFileStatus, ProcessingStage } from './types';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast"
-// +++ MODIFICATION START +++
-// , Landmark, UploadCloud, ListChecks
-import { Checkbox } from "@/components/ui/checkbox" // +++ NEW IMPORT +++
-import { Input } from "@/components/ui/input"     // +++ NEW IMPORT +++
-import { Loader2 } from 'lucide-react'; // For loading state
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"; // For error state
-import { Terminal } from 'lucide-react'; // Icon for error alert
+import { Checkbox } from "@/components/ui/checkbox"
+import { Input } from "@/components/ui/input"
+import { Loader2 } from 'lucide-react';
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Terminal } from 'lucide-react';
 import { Label } from '@/components/ui/label';
-import Joyride, { Step, CallBackProps, STATUS } from 'react-joyride'; // +++ Joyride Import +++
+import Joyride, { Step, CallBackProps, STATUS } from 'react-joyride';
 import { useAuth } from '@/contexts/AuthContext';
 import { DatasetActions } from './components/DatasetActions';
 import { v4 as uuidv4 } from 'uuid';
 
-// +++ MODIFICATION END +++
 interface DatasetListItem {
   datasetId: string;
   location: string
@@ -29,60 +25,46 @@ interface DatasetListItem {
 interface DatasetListApiResponse {
   datasets: DatasetListItem[];
 }
-// Modified UploadView
+
 export function UploadView() {
   const MAX_FILE_SIZE_MB = 50;
-  const MAX_CONCURRENT_FILES = 5; // Define your limit
-  const [isMultiHeaderMode, setIsMultiHeaderMode] = useState<boolean>(false); // +++ NEW STATE +++
+  const MAX_CONCURRENT_FILES = 5;
+  const [isMultiHeaderMode, setIsMultiHeaderMode] = useState<boolean>(false);
   const [headerDepth, setHeaderDepth] = useState<number | string>(2);       
   const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
   const [files, setFiles] = useState<ETLFile[]>([]);
   const [processingStage, setProcessingStage] = useState<ProcessingStage>('idle');
   const [isUploading, setIsUploading] = useState<boolean>(false);
   const { toast } = useToast();
-  // +++ Get user role and loading state from Auth context +++
+  
   const { userProfile, isRoleLoading } = useAuth();
   const isAdmin = userProfile?.role === 'admin';
-  // +++ End Auth context usage +++
-    // +++ MODIFICATION START +++
-  // State for fetched datasets, loading, and errors
+  
   const [availableDatasets, setAvailableDatasets] = useState<DatasetListItem[]>([]);
-  const [selectedDatasetId, setSelectedDatasetId] = useState<string>(""); // Start empty or null
+  const [selectedDatasetId, setSelectedDatasetId] = useState<string>("");
   const [loadingDatasets, setLoadingDatasets] = useState<boolean>(true);
   const [datasetError, setDatasetError] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState<boolean>(false);
-
-  // +++ Joyride State +++
+  const pollingIntervalsRef = useRef<Record<string, NodeJS.Timeout>>({});
+  
+  // Joyride State
   const [runTour, setRunTour] = useState<boolean>(false);
-  const TOUR_VERSION = 'uploadViewTour_v1'; // For managing tour updates
+  const TOUR_VERSION = 'uploadViewTour_v1';
 
   useEffect(() => {
-    // console.log('[Tour Effect] Running. loadingDatasets:', loadingDatasets);
     const hasSeenTour = localStorage.getItem(TOUR_VERSION);
-    // console.log('[Tour Effect] hasSeenTour:', hasSeenTour);
-
-    // Check if critical elements are in the DOM
     const workspaceSelectionElement = document.getElementById('tour-step-workspace-selection');
     const uploadAreaElement = document.getElementById('tour-step-upload-area');
-    // For file list, it only appears if files.length > 0, so we might not check it here initially,
-    // or the tour step for it should only be active when files are present.
-
-    // console.log('[Tour Effect] workspaceSelectionElement exists:', !!workspaceSelectionElement);
-    // console.log('[Tour Effect] uploadAreaElement exists:', !!uploadAreaElement);
 
     if (!hasSeenTour && !loadingDatasets && workspaceSelectionElement && uploadAreaElement) {
-      // console.log('[Tour Effect] All conditions met! Setting runTour to true in 500ms.');
       const timer = setTimeout(() => {
-        // console.log('[Tour Effect] Timeout fired. Calling setRunTour(true).');
         setRunTour(true);
       }, 500);
       return () => {
-        // console.log('[Tour Effect] Cleanup: Clearing timeout.');
         clearTimeout(timer);
       };
     } 
-  }, [loadingDatasets, TOUR_VERSION]); // TOUR_VERSION is a constant, but good practice if it could change
-                                      // files.length could be added if file-list step is critical for initial start
+  }, [loadingDatasets, TOUR_VERSION]);
 
   const uploadTourSteps: Step[] = [
     {
@@ -113,19 +95,6 @@ export function UploadView() {
       placement: 'right',
       floaterProps: { disableAnimation: true },
     },
-    // {
-    //   target: '#tour-step-file-list-actions', // This ID will be on the FileList component's wrapper
-    //   content: (
-    //     <div>
-    //       <h4>Manage and Process</h4>
-    //       <p className="mt-2">
-    //         After adding files, they'll appear here. You can then click <strong>"Upload All"</strong> to start processing.
-    //       </p>
-    //     </div>
-    //   ),
-    //   placement: 'top',
-    //   floaterProps: { disableAnimation: true },
-    // },
   ];
 
   const handleJoyrideCallback = (data: CallBackProps) => {
@@ -137,45 +106,32 @@ export function UploadView() {
       localStorage.setItem(TOUR_VERSION, 'true');
     }
   };
-  // +++ End Joyride State +++
 
+  const canCreateWorkspace = useMemo(() => {
+    if (isRoleLoading || loadingDatasets) {
+      return false;
+    }
+    return isAdmin || (!isAdmin && availableDatasets.length === 0);
+  }, [isAdmin, isRoleLoading, loadingDatasets, availableDatasets.length]);
 
-// src/features/upload/UploadView.tsx
-const canCreateWorkspace = useMemo(() => {
-  if (isRoleLoading || loadingDatasets) { // <<<< KEY ADDITION
-    return false; // Decision cannot be made reliably yet
-  }
-  return isAdmin || (!isAdmin && availableDatasets.length === 0);
-}, [isAdmin, isRoleLoading, loadingDatasets, availableDatasets.length]);
-  // We can derive a general 'isProcessing' state
-  const isProcessing = isUploading || isDeleting; // Add || isCreating if Create had its own loading state here
+  const isProcessing = isUploading || isDeleting;
+
   const fetchDatasets = async () => {
     setLoadingDatasets(true);
     setDatasetError(null);
     try {
       const resp = await axiosInstance.get<DatasetListApiResponse>('/api/bigquery/datasets');
-      // sort by ID
       const datasets = resp.data.datasets.sort((a, b) =>
         a.datasetId.localeCompare(b.datasetId)
       );
       setAvailableDatasets(datasets);
   
       if (datasets.length > 0) {
-        // If datasets are available, select the first one if nothing is selected
-        // or if the current selection is no longer in the list (e.g., after deletion by admin)
         if (!selectedDatasetId || !datasets.find(d => d.datasetId === selectedDatasetId)) {
-          // console.log("[UploadView] Selecting first dataset:", datasets[0].datasetId);
           setSelectedDatasetId(datasets[0].datasetId);
         }
       } else {
-        // No datasets returned for this user
         setSelectedDatasetId("");
-        // console.log("[UploadView] No workspace returned for user.");
-        // --- CRITICAL CHANGE: DO NOT set a generic error if the user might be able to create one ---
-        // If it's not an admin and they can create, this is fine.
-        // An error will only be shown if a fetch *actually* failed (caught in catch block)
-        // or if it's an admin with no datasets (they can create).
-        // A non-admin who cannot create and has no datasets will be guided by DatasetActions.
       }
     } catch (err: any) {
       console.error("[UploadView] Error fetching workspace:", err);
@@ -185,27 +141,25 @@ const canCreateWorkspace = useMemo(() => {
       setSelectedDatasetId(""); 
     } finally {
       setLoadingDatasets(false);
-      // console.log("[UploadView] fetchDatasets finished. LoadingDatasets:", false);
     }
   };
+
   useEffect(() => {
     fetchDatasets();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   
-  // Now this works too:
-const handleDatasetCreated = useCallback(() => {
-  fetchDatasets(); // This will set loadingDatasets to true, then false.
-}, [fetchDatasets]); // Empty dependency array ensures this runs only once on mount
-  // +++ MODIFICATION END +++
+  const handleDatasetCreated = useCallback(() => {
+    fetchDatasets();
+  }, []);
+
   const handleDeleteDatasetConfirmed = async () => {
-    if (!selectedDatasetId || !isAdmin) return; // Guard again
+    if (!selectedDatasetId || !isAdmin) return;
     setIsDeleting(true);
     try {
         await axiosInstance.delete(`/api/bigquery/datasets/${selectedDatasetId}`);
         toast({ title: "Workspace Deleted", description: `Workspace "${selectedDatasetId}" deleted.`, variant: "default" });
-        setSelectedDatasetId(""); // Reset selection
-        fetchDatasets();      // Refresh list
+        setSelectedDatasetId("");
+        fetchDatasets();
     } catch (error: any) {
         console.error(`Error deleting Workspace ${selectedDatasetId}:`, error);
         let message = `Failed to delete Workspace "${selectedDatasetId}".`;
@@ -217,9 +171,12 @@ const handleDatasetCreated = useCallback(() => {
     } finally {
         setIsDeleting(false);
     }
-};
+  };
 
   const handleFilesAdded = useCallback((newFiles: File[]) => {
+    //     console.log(
+    //     `[handleFilesAdded EXECUTING] isMultiHeaderMode: ${isMultiHeaderMode}, headerDepth: ${headerDepth}, selectedDatasetId: ${selectedDatasetId}, files.length: ${files.length}`
+    // );
     const remainingSlots = MAX_CONCURRENT_FILES - files.length;
     const filesToConsider = newFiles.slice(0, remainingSlots);
 
@@ -229,59 +186,62 @@ const handleDatasetCreated = useCallback(() => {
           title: "Select Workspace",
           description: "Please select a target workspace first before adding files.",
       });
-      if (files.length >= MAX_CONCURRENT_FILES) {
-    toast({
-        variant: "destructive",
-        title: "Upload Limit Reached",
-        description: `You can add a maximum of ${MAX_CONCURRENT_FILES} files at a time. Please upload or remove existing files first.`,
-    });
-        if (newFiles.length > filesToConsider.length) {
-    toast({
-        variant: "destructive",
-        title: "Some Files Skipped",
-        description: `You attempted to add ${newFiles.length} files, but only ${filesToConsider.length} could be added due to the ${MAX_CONCURRENT_FILES} file limit.`,
-    });
-}   if (filesToConsider.length === 0) {
-        // The toast for limit reached (point 2) would have already fired if files.length was >= MAX_CONCURRENT_FILES
-        // This handles the case where files.length was < MAX_CONCURRENT_FILES, but remainingSlots was 0 or negative (shouldn't happen with correct logic but safe).
+      return;
+    }
+
+    if (files.length >= MAX_CONCURRENT_FILES) {
+      toast({
+          variant: "destructive",
+          title: "Upload Limit Reached",
+          description: `You can add a maximum of ${MAX_CONCURRENT_FILES} files at a time. Please upload or remove existing files first.`,
+      });
+      return;
+    }
+
+    if (newFiles.length > filesToConsider.length) {
+      toast({
+          variant: "destructive", 
+          title: "Some Files Skipped",
+          description: `You attempted to add ${newFiles.length} files, but only ${filesToConsider.length} could be added due to the ${MAX_CONCURRENT_FILES} file limit.`,
+      });
+    }
+
+    if (filesToConsider.length === 0) {
         return;
     }
-        const validFiles = filesToConsider.filter(
-        file =>
-          /\.(xlsx|xls)$/i.test(file.name) &&
-          file.size <= MAX_FILE_SIZE_BYTES
+
+    const validFiles = filesToConsider.filter(
+      file =>
+        /\.(xlsx|xls)$/i.test(file.name) &&
+        file.size <= MAX_FILE_SIZE_BYTES
     );
+
     if (validFiles.length < filesToConsider.length) {
         toast({
-          variant: "destructive", // Or "warning" if you prefer
+          variant: "destructive",
           title: "Invalid Files Skipped",
           description: `Among the files considered for adding, ${filesToConsider.length - validFiles.length} were invalid (not Excel or too large). Only Excel files under ${MAX_FILE_SIZE_MB} MB are allowed.`
         });
     }
-        // If no files are valid after all checks, don't proceed
+
     if (validFiles.length === 0) {
         return;
     }
-    return; // Stop processing if already at or over the limit
-}
-      return; // Prevent adding files if no dataset is selected
-  }
-  const validFiles = newFiles.filter(
-    file =>
-      /\.(xlsx|xls)$/i.test(file.name) &&
-      file.size <= MAX_FILE_SIZE_BYTES
-  );
-  if (validFiles.length < newFiles.length) {
-    toast({
-      variant: "destructive",
-      title: "Invalid Files Skipped",
-      description: `Only Excel files under ${MAX_FILE_SIZE_MB} MB are allowed.`
-    });
-  }
-    const newETLFiles: ETLFile[] = newFiles
-      .filter(file => /\.(xlsx|xls)$/i.test(file.name) && file.size < 50 * 1024 * 1024)
-      .map((file): ETLFile => ({
-        id : uuidv4(),
+const newETLFiles: ETLFile[] = validFiles.map((file): ETLFile => {
+    // Capture the values that will be used for this specific file
+    const currentIsMultiHeaderForThisFile = isMultiHeaderMode;
+    const currentHeaderDepthForThisFile = isMultiHeaderMode && typeof headerDepth === 'number' ? headerDepth : undefined;
+
+    // Log them
+    // console.log(
+    //     `[handleFilesAdded MAPPING FILE] For: ${file.name}, ` +
+    //     `isMultiHeaderMode from state: ${isMultiHeaderMode}, headerDepth from state: ${headerDepth}, ` +
+    //     `==> Assigning isMultiHeader: ${currentIsMultiHeaderForThisFile}, headerDepth: ${currentHeaderDepthForThisFile}`
+    // );
+
+    // Return the new ETLFile object
+    return {
+        id: uuidv4(),
         file,
         name: file.name,
         size: file.size,
@@ -290,31 +250,18 @@ const handleDatasetCreated = useCallback(() => {
         progress: 0,
         errorMessage: null,
         uploadedAt: new Date(),
-        // +++ MODIFICATION START +++
-        targetDatasetId: selectedDatasetId, // Associate the currently selected dataset
-        isMultiHeader: isMultiHeaderMode,
-        headerDepth: isMultiHeaderMode && typeof headerDepth === 'number' ? headerDepth : undefined,
-        
-        // +++ MODIFICATION END +++
-      }));
-
-      if (newETLFiles.length !== newFiles.length) {
-          toast({ variant: "destructive", title: "Invalid Files Skipped", description: "Only Excel files (.xlsx, .xls) under 50MB are allowed." });
-      }
-
+        targetDatasetId: selectedDatasetId,
+        isMultiHeader: currentIsMultiHeaderForThisFile, // Use the captured value
+        headerDepth: currentHeaderDepthForThisFile,     // Use the captured value
+    };
+});
       setFiles(prevFiles => {
         const existingNames = new Set(prevFiles.map(f => f.name));
         const uniqueNewFiles = newETLFiles.filter(nf => !existingNames.has(nf.name));
         
         const combinedFiles = [...prevFiles, ...uniqueNewFiles];
         
-        // Final check, though the slicing should prevent this
         if (combinedFiles.length > MAX_CONCURRENT_FILES) {
-            // This should not happen if logic above is correct, but good to be safe.
-            // Potentially remove from the *start* of uniqueNewFiles if we really want to add some.
-            // Or, more simply, just take up to the limit from the combined array.
-            // However, the `remainingSlots` logic should prevent this state.
-            // For now, let's assume `remainingSlots` logic is primary and this is defensive.
              toast({
                  variant: "destructive",
                  title: "File Upload Limit Exceeded",
@@ -322,141 +269,388 @@ const handleDatasetCreated = useCallback(() => {
              });
             return combinedFiles.slice(0, MAX_CONCURRENT_FILES);
         }
+        
         return combinedFiles;
       });
-  // +++ MODIFICATION START +++
-  // Depend on selectedDatasetId so new files get the correct target
-  }, [files, selectedDatasetId, toast, MAX_FILE_SIZE_BYTES, MAX_FILE_SIZE_MB, MAX_CONCURRENT_FILES,isMultiHeaderMode, headerDepth]);
-  // +++ MODIFICATION END +++
+  }, [files, selectedDatasetId, toast, MAX_FILE_SIZE_BYTES, MAX_FILE_SIZE_MB, MAX_CONCURRENT_FILES, isMultiHeaderMode, headerDepth]);
 
-  // --- Function to update a single file's state ---
+  // CRITICAL FIX: Create a separate ref to track the latest files state
+  const filesRef = useRef<ETLFile[]>([]);
+  
+  // Update the ref whenever files state changes
+  useEffect(() => {
+    filesRef.current = files;
+  }, [files]);
+
   const updateFileState = useCallback((id: string, updates: Partial<ETLFile>) => {
-    setFiles(prevFiles =>
-      prevFiles.map(f => (f.id === id ? { ...f, ...updates } : f))
-    );
+    setFiles(prevFiles => {
+      const newFiles = prevFiles.map(f => (f.id === id ? { ...f, ...updates } : f));
+      // Also update the ref immediately
+      filesRef.current = newFiles;
+      return newFiles;
+    });
   }, []);
 
-  // --- Main Upload Logic ---
+  // CRITICAL FIX: Modified handleUpload with better state management
   const handleUpload = async () => {
     const filesToUpload = files.filter(f => f.status === 'pending');
     if (filesToUpload.length === 0) {
       toast({ title: "No files pending upload.", variant: "default" });
       return;
     }
-
-    // Double-check if a dataset is selected (using the placeholder state here)
     if (!selectedDatasetId) {
-        toast({ title: "Workspace Required", description: "Please select a target workspace before uploading.", variant: "destructive" });
-        return;
+      toast({ title: "Workspace Required", description: "Please select a target workspace before uploading.", variant: "destructive" });
+      return;
     }
 
     setIsUploading(true);
     setProcessingStage('uploading');
-    let successCount = 0;
-    let errorCount = 0;
 
     const uploadPromises = filesToUpload.map(async (file) => {
-      // Ensure the file has a target dataset ID (should be set on add, but double-check)
       const targetDataset = file.targetDatasetId || selectedDatasetId;
       if (!targetDataset) {
-          updateFileState(file.id, { status: 'error', progress: 0, errorMessage: "Target workspace not specified for this file." });
-          return { status: 'rejected', id: file.id, reason: "Target workspace missing." };
+        updateFileState(file.id, { status: 'error', progress: 0, errorMessage: "Target workspace not specified for this file." });
+        return { status: 'rejected' as const, id: file.id, reason: "Target workspace missing." };
       }
 
       updateFileState(file.id, { status: 'uploading', progress: 10, errorMessage: null });
 
       try {
-        // 1. Get Signed URL - PASS targetDatasetId
+        // 1. Get Signed URL
         let signedUrlResponse;
+        const urlParams = new URLSearchParams({ filename: file.name, dataset_id: targetDataset });
         try {
-            // Pass dataset_id as query parameter
-            const urlParams = new URLSearchParams({
-                filename: file.name,
-                dataset_id: targetDataset // Use the dataset ID associated with the file
-            });
-            signedUrlResponse = await axiosInstance.get<{ url: string; object_name: string }>(
-                `/api/upload-url?${urlParams.toString()}` // API expects dataset_id
-            );
-            if (!signedUrlResponse.data?.url || !signedUrlResponse.data?.object_name) {
-                throw new Error("Invalid signed URL response.");
-            }
-            updateFileState(file.id, { progress: 30, gcsObjectName: signedUrlResponse.data.object_name });
+          signedUrlResponse = await axiosInstance.get<{ url: string; object_name: string }>(
+            `/api/upload-url?${urlParams.toString()}`
+          );
+          if (!signedUrlResponse.data?.url || !signedUrlResponse.data?.object_name) {
+            throw new Error("Invalid signed URL response from API.");
+          }
         } catch (urlError: any) {
-             const message = (urlError as any).isAxiosError ? urlError.response?.data?.detail || urlError.message : urlError.message;
-             throw new Error(`Failed to get upload URL: ${message}`);
+          const message = urlError.response?.data?.detail || urlError.message || "Failed to get upload URL.";
+          throw new Error(`URL Fetch Error: ${message}`);
         }
-
+        
+        updateFileState(file.id, { progress: 30, gcsObjectName: signedUrlResponse.data.object_name });
         const { url: uploadUrl, object_name } = signedUrlResponse.data;
 
-        // 2. Upload to GCS (Unchanged technically, URL contains the path)
+        // 2. Upload to GCS
         updateFileState(file.id, { progress: 50 });
         const uploadResp = await fetch(uploadUrl, { method: 'PUT', headers: { 'Content-Type': file.type }, body: file.file });
-        if (!uploadResp.ok) { let errorText = 'Upload failed.'; try { errorText = await uploadResp.text(); } catch { /* ignore */ } throw new Error(`Upload failed: ${uploadResp.status} ${errorText.substring(0, 100)}`); }
+        if (!uploadResp.ok) { 
+          let errorText = `GCS Upload Failed (${uploadResp.status})`; 
+          try { errorText = `${errorText}: ${await uploadResp.text()}`; } catch { /* ignore */ } 
+          throw new Error(errorText.substring(0,150)); 
+        }
         updateFileState(file.id, { progress: 80 });
-      //   console.log(`[DEBUG] Triggering ETL for file ${file.name}:`, {
-      //     payload: {
-      //         object_name: object_name,
-      //         target_dataset_id: targetDataset
-      //     }
-      // });
-      interface ApiErrorResponse {
-        detail?: string;
-        // Add other possible error response fields if needed
-      }
-      const etlPayload = {
-     object_name: object_name,
-     target_dataset_id: targetDataset,
-     is_multi_header: file.isMultiHeader, // From ETLFile object
-     header_depth: file.headerDepth      // From ETLFile object
-};
-        // 3. Trigger ETL - PASS object_name AND target_dataset_id
-        const triggerResp = await axiosInstance.post<ApiErrorResponse>('/api/trigger-etl', etlPayload);
-        console.log(etlPayload)
-      if (triggerResp.status !== 200 && triggerResp.status !== 202) { 
-        throw new Error(`Failed to trigger processing: ${triggerResp.status} ${triggerResp.data?.detail || ''}`); 
-}
+
+        // 3. Trigger ETL
+        const etlTriggerPayload = {
+          object_name: object_name,
+          target_dataset_id: targetDataset,
+          is_multi_header: file.isMultiHeader,
+          header_depth: file.headerDepth,
+          original_file_name: file.name 
+        };
         
-        // Success
-        updateFileState(file.id, { status: 'completed', progress: 100 });
-        return { status: 'fulfilled', id: file.id };
+        const triggerResp = await axiosInstance.post<{
+          detail: string; 
+          status: string; 
+          object_name: string; 
+          batch_id: string;
+          file_id: string; 
+        }>('/api/trigger-etl', etlTriggerPayload);
+        
+        if (triggerResp.status !== 200 && triggerResp.status !== 202) {
+          throw new Error(`ETL Trigger API Error: ${triggerResp.status} ${triggerResp.data?.detail || ''}`); 
+        }
+        
+        const backendFileIdFromTrigger = triggerResp.data.file_id;
+        const backendBatchIdFromTrigger = triggerResp.data.batch_id;
+
+        // console.log(`HANDLE_UPLOAD: For frontend file ${file.id}, got backendFileId: ${backendFileIdFromTrigger}, backendBatchId: ${backendBatchIdFromTrigger}`);
+
+        // CRITICAL FIX: Use updateFileState and wait for state update
+        await new Promise<void>((resolve) => {
+          updateFileState(file.id, { 
+            status: 'processing_queued', 
+            progress: 90,
+            backendBatchId: backendBatchIdFromTrigger, 
+            backendFileId: backendFileIdFromTrigger 
+          });
+          
+          // Give the state update a chance to complete
+          setTimeout(() => {
+            // console.log(`HANDLE_UPLOAD: State updated for file ${file.id}. Current filesRef:`, 
+            //   filesRef.current.find(f => f.id === file.id));
+            resolve();
+          }, 100);
+        });
+
+        // Start polling for this batch after ensuring state is updated
+        startPollingForFileBatch(backendBatchIdFromTrigger);
+
+        return { status: 'fulfilled' as const, id: file.id, batch_id: triggerResp.data.batch_id };
 
       } catch (error: any) {
         console.error(`Error processing file ${file.name}:`, error);
-        const errorMessage = error.message || 'Unknown error';
+        const errorMessage = error.message || 'Unknown error during upload/trigger.';
         updateFileState(file.id, { status: 'error', progress: 0, errorMessage });
-        return { status: 'rejected', id: file.id, reason: errorMessage };
+        return { status: 'rejected' as const, id: file.id, reason: errorMessage };
       }
     });
 
+    let errorDuringTriggerCount = 0; 
     const results = await Promise.allSettled(uploadPromises);
-    results.forEach(result => { if (result.status === 'fulfilled') successCount++; else errorCount++; });
+    let triggeredCount = 0;
+    
+    results.forEach(result => { 
+      if (result.status === 'fulfilled') triggeredCount++;
+      else errorDuringTriggerCount++;
+    });
 
     setIsUploading(false);
 
-    if (successCount > 0 && errorCount === 0) { setProcessingStage('completed'); toast({ title: "Upload Complete", description: `${successCount} file(s) sent for processing.` }); }
-    else if (successCount > 0 && errorCount > 0) { setProcessingStage('completed'); toast({ variant: "default", title: "Upload Partially Complete", description: `${successCount} uploaded, ${errorCount} failed.` }); }
-    else { setProcessingStage('idle'); toast({ variant: "destructive", title: "Upload Failed", description: `All ${errorCount} file(s) failed.` }); }
+    if (triggeredCount > 0) {
+      setProcessingStage('processing_backend');
+      toast({ title: "Processing Initiated", description: `${triggeredCount} file(s) sent for backend processing. Status will update.` });
+    } else if (filesToUpload.length > 0 && errorDuringTriggerCount === filesToUpload.length) {
+      setProcessingStage('error_initial');
+      toast({ variant: "destructive", title: "Trigger Failed", description: `All ${filesToUpload.length} file(s) failed to queue for processing.` });
+    } else {
+      setProcessingStage('idle');
+    }
   };
+
+  const stopPollingForFileBatch = useCallback((batchId: string) => {
+    if (pollingIntervalsRef.current[batchId]) {
+      clearInterval(pollingIntervalsRef.current[batchId]);
+      delete pollingIntervalsRef.current[batchId];
+    }
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      Object.values(pollingIntervalsRef.current).forEach(clearInterval);
+      pollingIntervalsRef.current = {};
+    };
+  }, []);
+
+  useEffect(() => {
+    async () => {
+        try {
+            const response = await axiosInstance.get<any[]>('/api/user-active-etl-batches');
+            const activeBatchesFromServer: any[] = response.data; 
+            
+            if (activeBatchesFromServer && activeBatchesFromServer.length > 0) {
+                if (activeBatchesFromServer.some(b => b.overallBatchStatus === 'processing')) {
+                    setProcessingStage('processing_backend');
+                    toast({
+                        title: "Resuming Status Check",
+                        description: "Checking status of previously uploaded files...",
+                        duration: 3000
+                    });
+                }
+
+                activeBatchesFromServer.forEach(batch => {
+                    if (batch.overallBatchStatus === 'processing') {
+                        startPollingForFileBatch(batch.batch_id);
+                    }
+                });
+            }
+        } catch (error) {
+            console.error("Error fetching active user batches on load:", error);
+        }
+    };
+  }, [availableDatasets]);
 
   const removeFile = useCallback((id: string) => {
     setFiles(prevFiles => prevFiles.filter(file => file.id !== id));
   }, []);
 
   const clearCompleted = useCallback(() => {
-    setFiles(prevFiles => prevFiles.filter(file => file.status !== 'completed'));
-    // Optionally reset stage if only completed files were present
-    setFiles(prevFiles => {
-        if (prevFiles.every(f => f.status !== 'pending' && f.status !== 'uploading' && f.status !== 'processing')) {
+    setFiles(prevFiles => prevFiles.filter(file => 
+        file.status !== 'completed_successfully' &&
+        file.status !== 'completed_error' &&
+        file.status !== 'error'
+    ));
+    
+    setFiles(prevFilesAfterClear => {
+        if (prevFilesAfterClear.every(f => 
+            f.status !== 'pending' && 
+            f.status !== 'uploading' && 
+            f.status !== 'processing_queued' &&
+            f.status !== 'processing_backend'
+        )) {
             setProcessingStage('idle');
         }
-        return prevFiles.filter(f => f.status !== 'completed');
+        return prevFilesAfterClear;
+    });
+  }, []);
+
+  // CRITICAL FIX: Modified polling function to use filesRef
+  const pollFileBatchStatus = useCallback(async (batchIdToPoll: string) => {
+    // Use filesRef.current to get the latest files state
+    const currentFiles = filesRef.current;
+    // console.log(`POLL START: Polling for batch: ${batchIdToPoll}. Current UI files count (from ref): ${currentFiles.length}`);
+    // console.log(`POLL START: UI Files details (from ref):`, JSON.parse(JSON.stringify(currentFiles)));
+
+    try {
+      const response = await axiosInstance.get<BatchStatusApiResponse>(`/api/etl-batch-status/${batchIdToPoll}`);
+      const batchStatusData = response.data;
+      // console.log(`POLL DATA for ${batchIdToPoll}:`, JSON.parse(JSON.stringify(batchStatusData)));
+
+      if (batchStatusData.files) {
+        for (const backendFileId_from_poll in batchStatusData.files) {
+          const backendFileDetail = batchStatusData.files?.[backendFileId_from_poll];
+          if (!backendFileDetail) continue;
+
+          // console.log(`POLL: Processing backend file ${backendFileId_from_poll} (status: ${backendFileDetail.status}) from batch ${batchIdToPoll}`);
+
+          const frontendFileToUpdate = currentFiles.find(f => {
+            // console.log(`POLL .find: UI File ID ${f.id}, UI backendBatchId: ${f.backendBatchId}, UI backendFileId: ${f.backendFileId} -- Comparing with Batch: ${batchIdToPoll}, BackendFile: ${backendFileId_from_poll}`);
+            return f.backendBatchId === batchIdToPoll && f.backendFileId === backendFileId_from_poll;
+          });
+
+          if (frontendFileToUpdate) {
+            // console.log(`POLL: Found UI file ${frontendFileToUpdate.id} (current status: ${frontendFileToUpdate.status}) for backend file ${backendFileId_from_poll}`);
+            let newFrontendStatus: ETLFileStatus = frontendFileToUpdate.status;
+
+            if (backendFileDetail.status === 'completed_success') {
+              newFrontendStatus = 'completed_successfully';
+            } else if (backendFileDetail.status === 'completed_error') {
+              newFrontendStatus = 'completed_error';
+            } else if (['triggered_to_worker', 'queued_for_trigger', 'processing'].includes(backendFileDetail.status) ) {
+              newFrontendStatus = 'processing_backend';
+            }
+            
+            // console.log(`POLL: Calculated newFrontendStatus for ${frontendFileToUpdate.id}: ${newFrontendStatus}`);
+
+            if (newFrontendStatus !== frontendFileToUpdate.status || 
+                (backendFileDetail.errorMessage || null) !== frontendFileToUpdate.errorMessage) {
+              // console.log(`POLL: ==> Calling updateFileState for ${frontendFileToUpdate.id} from ${frontendFileToUpdate.status} to ${newFrontendStatus}`);
+              updateFileState(frontendFileToUpdate.id, {
+                status: newFrontendStatus,
+                errorMessage: backendFileDetail.errorMessage || null,
+                progress: (newFrontendStatus === 'completed_successfully' || newFrontendStatus === 'completed_error') ? 100 : frontendFileToUpdate.progress,
+              });
+            } else {
+              // console.log(`POLL: No UI status change needed for ${frontendFileToUpdate.id} (already ${frontendFileToUpdate.status})`);
+            }
+          } else {
+            console.warn(`POLL: UI file for backendFileId ${backendFileId_from_poll} in batch ${batchIdToPoll} NOT FOUND.`);
+          }
+        }
+      }
+
+      if (batchStatusData.overallBatchStatus === "completed" || batchStatusData.overallBatchStatus === "completed_with_errors") {
+        // console.log(`POLL: overallBatchStatus for ${batchIdToPoll} is terminal (${batchStatusData.overallBatchStatus}). Stopping poll.`);
+        stopPollingForFileBatch(batchIdToPoll);
+        
+        // Fallback UI update using current files from ref
+        currentFiles.forEach(f => {
+            if (f.backendBatchId === batchIdToPoll && f.status !== 'completed_successfully' && f.status !== 'completed_error' && f.status !== 'error') {
+                // console.log(`POLL FALLBACK: Updating file ${f.id} to terminal state due to overall batch completion.`);
+                updateFileState(f.id, { 
+                  status: batchStatusData.overallBatchStatus === "completed" ? 'completed_successfully' : 'completed_error',
+                  errorMessage: batchStatusData.overallBatchStatus === "completed_with_errors" ? (f.errorMessage || "Batch completed with errors.") : null,
+                  progress: 100
+                });
+            }
+        });
+      }
+      // console.log(`POLL END for batch: ${batchIdToPoll}`);
+    } catch (error: any) {
+        let errorMessage = "Polling failed";
+        if (error instanceof (error as any).isAxiosError && error.response) {
+          const errorData = error.response.data as ApiErrorResponse;
+          errorMessage = errorData.detail || error.message;
+        } else if (error instanceof Error) {
+          errorMessage = error.message;
+        }
+        console.error(`POLL ERROR for batch ${batchIdToPoll}:`, errorMessage);
+        
+        // Update files using current ref
+        currentFiles.forEach(f => {
+            if (f.backendBatchId === batchIdToPoll) {
+              updateFileState(f.id, {
+                status: 'error',
+                errorMessage: `Status polling failed for batch: ${errorMessage.substring(0,100)}`
+              });
+            }
+          });
+        stopPollingForFileBatch(batchIdToPoll);
+    }
+  }, [updateFileState, stopPollingForFileBatch]); // Removed 'files' from dependencies
+
+  const startPollingForFileBatch = useCallback((batchId: string) => {
+    if (pollingIntervalsRef.current[batchId]) {
+        return; 
+    }
+    // console.log(`Setting up polling interval for batch ${batchId}.`);
+    
+    pollingIntervalsRef.current[batchId] = setInterval(() => {
+      pollFileBatchStatus(batchId); 
+    }, 7000); 
+  }, [pollFileBatchStatus]);
+
+  // Simplified useEffect for managing processingStage
+  useEffect(() => {
+    // console.log("EFFECT (Main Logic): Files array changed. Current files:", JSON.parse(JSON.stringify(files)));
+
+    let isAnyFileUploading = false;
+    let areAnyFilesProcessingBackend = false;
+    let allTrackedFilesAreTerminal = files.length > 0;
+    let hasAnyErrors = false;
+    let hasPendingFiles = false;
+
+    files.forEach(file => {
+        // Initiate polling for newly triggered files
+        if (file.backendBatchId && 
+            file.status === 'processing_queued' && 
+            !pollingIntervalsRef.current[file.backendBatchId]) {
+            // console.log(`EFFECT_POLL_INIT: File ${file.id} (backendFileId: ${file.backendFileId}) needs polling. Batch: ${file.backendBatchId}.`);
+            // Perform first poll immediately and set up interval
+            setTimeout(() => pollFileBatchStatus(file.backendBatchId!), 100);
+            startPollingForFileBatch(file.backendBatchId);
+        }
+
+        // Update flags for processingStage calculation
+        if (file.status === 'uploading') isAnyFileUploading = true;
+        if (file.status === 'processing_queued' || file.status === 'processing_backend' || file.status === 'processing_worker') {
+            areAnyFilesProcessingBackend = true;
+        }
+        if (file.status === 'pending') hasPendingFiles = true;
+
+        if (file.status !== 'completed_successfully' && file.status !== 'completed_error' && file.status !== 'error') {
+            allTrackedFilesAreTerminal = false;
+        }
+        if (file.status === 'completed_error' || file.status === 'error') {
+            hasAnyErrors = true;
+        }
     });
 
-  }, []);
+    // Determine overall processingStage
+    if (isAnyFileUploading) {
+        setProcessingStage('uploading');
+    } else if (areAnyFilesProcessingBackend) {
+        setProcessingStage('processing_backend');
+    } else if (allTrackedFilesAreTerminal) {
+        if (hasAnyErrors) {
+            setProcessingStage('completed_with_errors');
+        } else {
+            setProcessingStage('completed_all');
+        }
+    } else if (hasPendingFiles && !isAnyFileUploading && !areAnyFilesProcessingBackend) {
+        setProcessingStage('idle');
+    } else if (files.length === 0) {
+        setProcessingStage('idle');
+    }
+
+  }, [files, pollFileBatchStatus, startPollingForFileBatch]);
 
   const totalFiles = files.length;
   const filesWithError = files.filter(f => f.status === 'error').length;
-
   return (
     <>
        <Joyride
@@ -683,3 +877,4 @@ const handleDatasetCreated = useCallback(() => {
     </>
   );
 }
+
