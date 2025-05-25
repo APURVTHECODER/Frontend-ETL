@@ -184,7 +184,6 @@ function AppContent() {
         if (loading) {
          return <div className="flex items-center justify-center h-screen"><Loader2 className="h-8 w-8 animate-spin text-primary"/></div>;
     }
-       const FOOTER_HEIGHT_ESTIMATE = 'pb-16 sm:pb-12'; // e.g., pb-12 for ~3rem, pb-16 for ~4rem
     return (
         <>
                     <Joyride

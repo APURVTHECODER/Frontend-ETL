@@ -5,11 +5,10 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogDescription,
-  DialogClose, // For a dedicated close button if not using the X from DialogContent
+  DialogDescription, // For a dedicated close button if not using the X from DialogContent
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Mail, Copy, Check, X as LucideX } from 'lucide-react'; // X for close, LucideX to avoid name clash
+import { Mail, Copy, Check } from 'lucide-react'; // X for close, LucideX to avoid name clash
 import { useToast } from "@/hooks/use-toast";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
