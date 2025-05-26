@@ -212,7 +212,7 @@ const handleSubmit = async () => {
         image_urls: gcsImageReferences.length > 0 ? gcsImageReferences : null, // Send GCS references
       };
       
-      console.log("Submitting feedback payload:", payload);
+      // console.log("Submitting feedback payload:", payload);
 
       await axiosInstance.post('/api/feedback/', payload);
       toast({ title: 'Feedback Submitted!', description: 'Thank you for helping us improve.' });

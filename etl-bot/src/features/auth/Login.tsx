@@ -8,7 +8,8 @@ import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Loader2 } from 'lucide-react'; // Import icons
 import { FcGoogle } from "react-icons/fc"; // Install react-icons: npm install react-icons
-import { Database, Terminal } from "lucide-react";
+import { Terminal } from "lucide-react";
+import CompanyLogoJPEG from '@/assets/images/logo.png';
 
 const LoginPage: React.FC = () => {
   const navigate = useNavigate();
@@ -53,15 +54,26 @@ const LoginPage: React.FC = () => {
   }, [user, navigate, from]);
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-background to-muted/50 p-4">
-      <div className="w-full max-w-md p-8 space-y-6 bg-card rounded-xl shadow-lg border">
-        <div className="text-center">
-          <Database className="mx-auto h-12 w-12 text-primary mb-3" /> {/* App Icon */}
-          <h1 className="text-2xl font-bold text-card-foreground">Sign in to TransformEXL Ai</h1>
-          <p className="text-muted-foreground mt-1 text-sm">
-            Access the power of TransformEXL Ai
-          </p>
-        </div>
+<div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-background to-muted/50 p-4">
+  <div className="w-full max-w-md p-8 space-y-6 bg-card rounded-xl shadow-lg border">
+    <div className="text-center">
+      {/* Logo centered */}
+<div className="mb-4 flex justify-center">
+  <img 
+    src={CompanyLogoJPEG}
+    alt="TransformEXL AI Logo" 
+    className="h-24 w-24 object-contain"
+  />
+</div>
+
+
+      {/* Heading and subtext */}
+      <h1 className="text-2xl font-bold text-card-foreground">Sign in to TransformEXL AI</h1>
+      <p className="text-muted-foreground mt-1 text-sm">
+        Access the power of TransformEXL AI
+      </p>
+    </div>
+
 
         {error && (
           <Alert variant="destructive">

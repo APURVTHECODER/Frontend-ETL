@@ -694,7 +694,11 @@ useEffect(() => {
     }, []);
 
     // --- API Callbacks (Keep existing ones) ---
-    const stopPolling = useCallback(() => { if(pollingIntervalRef.current){clearInterval(pollingIntervalRef.current); pollingIntervalRef.current=null; console.log("Polling stopped.");} }, []);
+    const stopPolling = useCallback(() => { if(pollingIntervalRef.current){clearInterval(pollingIntervalRef.current); pollingIntervalRef.current=null; 
+        
+        // console.log("Polling stopped.")
+        
+        ;} }, []);
     // fetchJobResults: Modified to set original results in jobResults
     
     

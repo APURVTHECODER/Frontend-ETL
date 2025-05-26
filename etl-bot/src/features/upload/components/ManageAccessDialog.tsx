@@ -187,7 +187,7 @@ export function ManageAccessDialog({ }: ManageAccessProps) {
         <DialogHeader className="space-y-2">
           <DialogTitle>Manage User Access</DialogTitle>
           <DialogDescription>
-            Assign roles and dataset access to users by email. Users must exist in Firebase Authentication.
+            Assign roles and workspace access to users by email. Users must exist in Authentication.
           </DialogDescription>
         </DialogHeader>
 
@@ -264,21 +264,21 @@ export function ManageAccessDialog({ }: ManageAccessProps) {
                   </div>
               </RadioGroup>
                <p className="text-xs text-muted-foreground">
-                 Admins can access all datasets and manage users. Users access only assigned datasets.
+                 Admins can access all workspaces and manage users. Users access only assigned workspace.
              </p>
           </div>
 
            {/* Dataset Selection */}
           <div className="grid gap-2">
             <Label className={`font-medium ${isDatasetSelectionDisabled ? 'text-muted-foreground' : ''}`}>
-              Accessible Datasets (for 'User' role)
+              Accessible Workspace (for 'User' role)
             </Label>
              {loadingDatasets ? (
-                 <div className="flex items-center text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin mr-2" />Loading datasets...</div>
+                 <div className="flex items-center text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin mr-2" />Loading workspace...</div>
              ) : datasetFetchError ? (
                  <p className="text-xs text-destructive">{datasetFetchError}</p>
              ) : availableDatasets.length === 0 ? (
-                 <p className="text-xs text-muted-foreground italic">No datasets available to select.</p>
+                 <p className="text-xs text-muted-foreground italic">No workspace available to select.</p>
              ) : (
                  <ScrollArea className={`h-[150px] w-full rounded-md border p-3 ${isDatasetSelectionDisabled ? 'bg-muted opacity-60 cursor-not-allowed' : ''}`}>
                      <div className="space-y-2">
@@ -303,7 +303,7 @@ export function ManageAccessDialog({ }: ManageAccessProps) {
                  </ScrollArea>
              )}
              {isDatasetSelectionDisabled && (
-                 <p className="text-xs text-muted-foreground italic mt-1">Dataset selection is disabled for the 'Admin' role (admins access all datasets).</p>
+                 <p className="text-xs text-muted-foreground italic mt-1">Workspace selection is disabled for the 'Admin' role (admins access all workspace).</p>
              )}
           </div>
 

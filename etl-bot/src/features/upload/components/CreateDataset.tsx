@@ -77,8 +77,8 @@ export function CreateDataset({ onDatasetCreated, defaultLocation = "US" }: Crea
       });
 
       toast({
-        title: "Dataset Created",
-        description: `Dataset "${response.data.dataset_id}" created successfully in ${response.data.location}.`,
+        title: "Workspace Created",
+        description: `Workspace "${response.data.dataset_id}" created successfully in ${response.data.location}.`,
       });
 
       onDatasetCreated();

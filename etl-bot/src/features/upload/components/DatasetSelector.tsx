@@ -44,7 +44,7 @@ export function DatasetSelector({
     return (
       <Alert variant="destructive" className="flex-grow">
         <Terminal className="h-4 w-4" />
-        <AlertTitle>Error Loading Datasets</AlertTitle>
+        <AlertTitle>Error Loading Workspace</AlertTitle>
         <AlertDescription>{datasetError}</AlertDescription>
         {/* Note: Create button will be shown next to this by the parent if user is admin */}
       </Alert>
@@ -68,7 +68,7 @@ export function DatasetSelector({
       <SelectContent>
         {availableDatasets.length === 0 ? (
           <div className="px-4 py-2 text-sm text-muted-foreground italic">
-            No datasets found. Admins can create one.
+            No workspace found. Admins can create one.
           </div>
         ) : (
           availableDatasets.map(ds => (

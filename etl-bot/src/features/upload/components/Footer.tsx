@@ -5,7 +5,7 @@ import { BookText, Mail } from 'lucide-react'; // Users icon might not be needed
 import { cn } from '@/lib/utils';
 import CompanyLogoJPEG from '@/assets/images/logo.png';
 import { ContactUsModal } from '@/components/layout/ContactUsModal';
-const YOUR_SUPPORT_EMAIL = "support@transformexl.ai";
+const YOUR_SUPPORT_EMAIL = "connect.cxo@gmail.com";
 
 export const AppFooter: React.FC = () => {
   const currentYear = new Date().getFullYear();

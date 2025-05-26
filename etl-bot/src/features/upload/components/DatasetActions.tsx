@@ -137,9 +137,9 @@ export function DatasetActions({
                  Confirm Deletion
               </AlertDialogTitle>
               <AlertDialogDescription>
-                Are you absolutely sure you want to delete the dataset{' '}
+                Are you absolutely sure you want to delete the workspace{' '}
                 <strong className="mx-1">{selectedDatasetId}</strong>? This action is
-                irreversible and will permanently delete the dataset and{' '}
+                irreversible and will permanently delete the workspace and{' '}
                 <strong>all</strong> tables within it.
               </AlertDialogDescription>
             </AlertDialogHeader>
@@ -155,7 +155,7 @@ export function DatasetActions({
                 className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               >
                  {/* The text here usually doesn't change based on external loading state */}
-                 Yes, Delete Dataset
+                 Yes, Delete Workspace
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
