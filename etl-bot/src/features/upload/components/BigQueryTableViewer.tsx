@@ -572,7 +572,7 @@ const handlePromptChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) 
                 if (!userJustSelectedSuggestion) { // Only fetch if not immediately after selecting one
                     fetchPromptSuggestions(newPrompt);
                 }
-            }, 250);
+            }, 1000);
         } else {
             setShowSuggestions(false); // Hide if prompt is too short
             setPromptSuggestions([]);
