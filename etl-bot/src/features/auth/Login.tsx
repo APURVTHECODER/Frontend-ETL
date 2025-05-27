@@ -19,7 +19,7 @@ const LoginPage: React.FC = () => {
   const [isLoading, setIsLoading] = useState<boolean>(false);
 
   // Determine where to redirect after login
-  const from = location.state?.from?.pathname || "/"; // Default to home page
+  const from = location.state?.from?.pathname || "/upload"; // Default to home page
 
   const handleGoogleSignIn = async () => {
     setError(null);
