@@ -58,6 +58,7 @@ export interface ETLFile {
   headerDepth?: number;
   backendBatchId?: string; 
   backendFileId?: string;  
+  applyAiSmartCleanup?: boolean;
 }
 
 // For the overall UI processing stage

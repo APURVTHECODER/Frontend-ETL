@@ -39,7 +39,8 @@ export function UploadView() {
   
   const { userProfile, isRoleLoading } = useAuth();
   const isAdmin = userProfile?.role === 'admin';
-  
+  // Inside UploadView component, near other useState hooks
+  const [enableAiSmartCleanup, setEnableAiSmartCleanup] = useState<boolean>(false);
   const [availableDatasets, setAvailableDatasets] = useState<DatasetListItem[]>([]);
   const [selectedDatasetId, setSelectedDatasetId] = useState<string>("");
   const [loadingDatasets, setLoadingDatasets] = useState<boolean>(true);
@@ -231,7 +232,7 @@ const newETLFiles: ETLFile[] = validFiles.map((file): ETLFile => {
     // Capture the values that will be used for this specific file
     const currentIsMultiHeaderForThisFile = isMultiHeaderMode;
     const currentHeaderDepthForThisFile = isMultiHeaderMode && typeof headerDepth === 'number' ? headerDepth : undefined;
-
+    const currentEnableAiCleanupForThisFile = enableAiSmartCleanup; 
     // Log them
     // console.log(
     //     `[handleFilesAdded MAPPING FILE] For: ${file.name}, ` +
@@ -253,6 +254,7 @@ const newETLFiles: ETLFile[] = validFiles.map((file): ETLFile => {
         targetDatasetId: selectedDatasetId,
         isMultiHeader: currentIsMultiHeaderForThisFile, // Use the captured value
         headerDepth: currentHeaderDepthForThisFile,     // Use the captured value
+        applyAiSmartCleanup: currentEnableAiCleanupForThisFile,
     };
 });
       setFiles(prevFiles => {
@@ -272,7 +274,7 @@ const newETLFiles: ETLFile[] = validFiles.map((file): ETLFile => {
         
         return combinedFiles;
       });
-  }, [files, selectedDatasetId, toast, MAX_FILE_SIZE_BYTES, MAX_FILE_SIZE_MB, MAX_CONCURRENT_FILES, isMultiHeaderMode, headerDepth]);
+  }, [files, selectedDatasetId, toast, MAX_FILE_SIZE_BYTES, MAX_FILE_SIZE_MB, MAX_CONCURRENT_FILES, isMultiHeaderMode, headerDepth,enableAiSmartCleanup ]);
 
   // CRITICAL FIX: Create a separate ref to track the latest files state
   const filesRef = useRef<ETLFile[]>([]);
@@ -350,7 +352,9 @@ const newETLFiles: ETLFile[] = validFiles.map((file): ETLFile => {
           target_dataset_id: targetDataset,
           is_multi_header: file.isMultiHeader,
           header_depth: file.headerDepth,
-          original_file_name: file.name 
+          apply_ai_smart_cleanup: file.applyAiSmartCleanup,
+          original_file_name: file.name ,
+        
         };
         
         const triggerResp = await axiosInstance.post<{
@@ -360,7 +364,7 @@ const newETLFiles: ETLFile[] = validFiles.map((file): ETLFile => {
           batch_id: string;
           file_id: string; 
         }>('/api/trigger-etl', etlTriggerPayload);
-        
+        // console.log(etlTriggerPayload)
         if (triggerResp.status !== 200 && triggerResp.status !== 202) {
           throw new Error(`ETL Trigger API Error: ${triggerResp.status} ${triggerResp.data?.detail || ''}`); 
         }
@@ -860,7 +864,22 @@ const newETLFiles: ETLFile[] = validFiles.map((file): ETLFile => {
           </p>
         </div>
         {/* +++ END NEW SECTION +++ */}
-
+<div className="pt-3 border-t mt-3"> {/* Optional separator */}
+    <div className="flex items-center space-x-2">
+        <Checkbox
+            id="ai-smart-cleanup-toggle"
+            checked={enableAiSmartCleanup}
+            onCheckedChange={(checked) => setEnableAiSmartCleanup(Boolean(checked))}
+            disabled={!selectedDatasetId || loadingDatasets || !!datasetError || isUploading || processingStage === 'uploading'}
+        />
+        <Label htmlFor="ai-smart-cleanup-toggle" className="text-sm font-medium">
+            Enable AI Smart Data Cleaning (Beta)
+        </Label>
+    </div>
+    <p className="text-xs text-muted-foreground pl-6 pt-1">
+        AI will attempt to standardize formats (e.g., dates to YYYY-MM-DD) and normalize text in your data. May increase processing time.
+    </p>
+</div>
 
       {/* --- Upload Area and File List --- */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
