@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import axiosInstance from '@/lib/axios-instance';
 import { ChatbotWindow } from "@/components/chatbot/ChatbotWindow";
+import { ActiveFiltersSummary } from './ActiveFiltersSummary';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import {
     AlertDialog,
@@ -185,6 +186,7 @@ const BigQueryTableViewer: React.FC = () => {
     const [isTablePopoverOpen, setIsTablePopoverOpen] = useState(false);
     const [isColumnPopoverOpen, setIsColumnPopoverOpen] = useState(false);
     const [isFeedbackModalOpen, setIsFeedbackModalOpen] = useState(false);
+    
 const [feedbackContext, setFeedbackContext] = useState<Partial<FeedbackModalProps>>({});
 // +++ MODIFICATION END +++
     const [filteredTables, setFilteredTables] = useState<TableInfo[]>([]);
@@ -280,6 +282,7 @@ const [feedbackContext, setFeedbackContext] = useState<Partial<FeedbackModalProp
     // }, []);
 // Inside BigQueryTableViewer component
     // Effect to start the tour on first visit & when data is loaded
+    
     useEffect(() => {
         const hasSeenViewerTour = localStorage.getItem(VIEWER_TOUR_VERSION);
         // console.log(`[ViewerTour Effect] loading Workspace: ${loadingDatasets}, hasSeenViewerTour: ${hasSeenViewerTour}, selectedWorkspaceId: ${selectedDatasetId}`);
@@ -2749,6 +2752,11 @@ onFocus={() => {
             </div>
         );
     };
+// Inside BigQueryTableViewer component, near other useCallback handlers:
+const clearSingleFilter = useCallback((columnName: string) => {
+    // To clear a filter, we call handleFilterChange with null for that column's value
+    handleFilterChange(columnName, null);
+}, [handleFilterChange]); // Dependency on handleFilterChange
 
     const renderOutputPane = () => {
         const canVisualize = suggestedCharts.length > 0 || activeVisualization !== null;
@@ -2955,7 +2963,12 @@ onFocus={() => {
                         filteredCount={filteredData.length}   // Filtered count
                     />
                  )}
-
+             <ActiveFiltersSummary
+                activeFilters={activeFilters}
+                availableFilters={availableFilters} // Pass availableFilters for labels
+                onClearFilter={clearSingleFilter} // Use the new specific handler
+                onClearAllFilters={handleClearAllFilters}
+             />
                  {/* Container for the rest (metadata, suggestions, table, pagination) */}
                 <div className="flex-grow flex flex-col p-3 overflow-hidden">
 
