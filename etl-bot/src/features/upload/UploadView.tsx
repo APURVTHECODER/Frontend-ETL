@@ -47,7 +47,8 @@ export function UploadView() {
   const [datasetError, setDatasetError] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState<boolean>(false);
   const pollingIntervalsRef = useRef<Record<string, NodeJS.Timeout>>({});
-  
+  // Inside UploadView component, near other useState hooks
+const [textNormalizationMode, setTextNormalizationMode] = useState<string>("title_case_trim"); // Default mode
   // Joyride State
   const [runTour, setRunTour] = useState<boolean>(false);
   const TOUR_VERSION = 'uploadViewTour_v1';
@@ -66,7 +67,15 @@ export function UploadView() {
       };
     } 
   }, [loadingDatasets, TOUR_VERSION]);
-
+// Inside UploadView component, or in a constants file and imported
+const TEXT_NORMALIZATION_MODES = [
+  { value: "title_case_trim", label: "Title Case & Trim" },
+  { value: "lower_case_trim", label: "lower case & Trim" },
+  { value: "upper_case_trim", label: "UPPER CASE & Trim" },
+  { value: "trim_only", label: "Trim Whitespace Only" },
+  // Optional: Add more later if desired
+  // { value: "remove_special_chars_trim", label: "Remove Special Chars & Trim" },
+];
   const uploadTourSteps: Step[] = [
     {
       target: '#tour-step-workspace-selection',
@@ -233,6 +242,7 @@ const newETLFiles: ETLFile[] = validFiles.map((file): ETLFile => {
     const currentIsMultiHeaderForThisFile = isMultiHeaderMode;
     const currentHeaderDepthForThisFile = isMultiHeaderMode && typeof headerDepth === 'number' ? headerDepth : undefined;
     const currentEnableAiCleanupForThisFile = enableAiSmartCleanup; 
+    const currentTextNormalizationModeForThisFile = enableAiSmartCleanup ? textNormalizationMode : undefined;
     // Log them
     // console.log(
     //     `[handleFilesAdded MAPPING FILE] For: ${file.name}, ` +
@@ -255,6 +265,7 @@ const newETLFiles: ETLFile[] = validFiles.map((file): ETLFile => {
         isMultiHeader: currentIsMultiHeaderForThisFile, // Use the captured value
         headerDepth: currentHeaderDepthForThisFile,     // Use the captured value
         applyAiSmartCleanup: currentEnableAiCleanupForThisFile,
+        textNormalizationMode: currentTextNormalizationModeForThisFile,
     };
 });
       setFiles(prevFiles => {
@@ -274,7 +285,7 @@ const newETLFiles: ETLFile[] = validFiles.map((file): ETLFile => {
         
         return combinedFiles;
       });
-  }, [files, selectedDatasetId, toast, MAX_FILE_SIZE_BYTES, MAX_FILE_SIZE_MB, MAX_CONCURRENT_FILES, isMultiHeaderMode, headerDepth,enableAiSmartCleanup ]);
+  }, [files, selectedDatasetId, toast, MAX_FILE_SIZE_BYTES, MAX_FILE_SIZE_MB, MAX_CONCURRENT_FILES, isMultiHeaderMode, headerDepth,enableAiSmartCleanup,textNormalizationMode  ]);
 
   // CRITICAL FIX: Create a separate ref to track the latest files state
   const filesRef = useRef<ETLFile[]>([]);
@@ -354,6 +365,7 @@ const newETLFiles: ETLFile[] = validFiles.map((file): ETLFile => {
           header_depth: file.headerDepth,
           apply_ai_smart_cleanup: file.applyAiSmartCleanup,
           original_file_name: file.name ,
+          text_normalization_mode: file.textNormalizationMode,
         
         };
         
@@ -364,7 +376,7 @@ const newETLFiles: ETLFile[] = validFiles.map((file): ETLFile => {
           batch_id: string;
           file_id: string; 
         }>('/api/trigger-etl', etlTriggerPayload);
-        // console.log(etlTriggerPayload)
+        console.log(etlTriggerPayload)
         if (triggerResp.status !== 200 && triggerResp.status !== 202) {
           throw new Error(`ETL Trigger API Error: ${triggerResp.status} ${triggerResp.data?.detail || ''}`); 
         }
@@ -879,6 +891,32 @@ const newETLFiles: ETLFile[] = validFiles.map((file): ETLFile => {
     <p className="text-xs text-muted-foreground pl-6 pt-1">
         AI will attempt to standardize formats (e.g., dates to YYYY-MM-DD) and normalize text in your data. May increase processing time.
     </p>
+    {enableAiSmartCleanup && (
+    <div className="pl-6 pt-3 space-y-2">
+        <Label htmlFor="text-normalization-mode-select" className="text-sm font-medium text-muted-foreground">
+            Text Normalization Mode:
+        </Label>
+        <Select
+            value={textNormalizationMode}
+            onValueChange={setTextNormalizationMode}
+            disabled={!selectedDatasetId || loadingDatasets || !!datasetError || isUploading || processingStage === 'uploading'}
+        >
+            <SelectTrigger id="text-normalization-mode-select" className="w-full sm:w-[280px] text-xs h-9">
+                <SelectValue placeholder="Select text normalization mode..." />
+            </SelectTrigger>
+            <SelectContent>
+                {TEXT_NORMALIZATION_MODES.map(mode => (
+                    <SelectItem key={mode.value} value={mode.value} className="text-xs">
+                        {mode.label}
+                    </SelectItem>
+                ))}
+            </SelectContent>
+        </Select>
+        <p className="text-xs text-muted-foreground">
+            Choose how AI should normalize text data (e.g., case, spacing). Applies to string columns.
+        </p>
+    </div>
+)}
 </div>
 
       {/* --- Upload Area and File List --- */}
