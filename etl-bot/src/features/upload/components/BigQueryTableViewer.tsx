@@ -1872,7 +1872,7 @@ useEffect(() => {
       const isFav = favoriteTables.includes(t.tableId);
       return (
         <li key={t.tableId} className="flex items-center group">
-          {/* Table name button */}
+          {/* Delete button */}
             <AlertDialog>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -1921,8 +1921,8 @@ useEffect(() => {
               </AlertDialogContent>
             </AlertDialog>
 
-
-                    <button
+          {/* Favorite toggle */}
+          <button
             onClick={(e) => {
               e.stopPropagation();
               toggleFavorite(t.tableId);
@@ -1939,35 +1939,38 @@ useEffect(() => {
               fill={isFav ? 'currentColor' : 'none'}
             />
           </button>
-          <button
-            onClick={() => handleTableSelect(t.tableId)}
-            className={`
-              flex-grow px-2 py-1.5 rounded-md text-left truncate text-xs
-              transition-colors duration-150 ease-in-out
-              ${selectedTableId === t.tableId
-                ? 'bg-primary text-primary-foreground font-medium'
-                : 'text-foreground hover:bg-muted'}
-            `}
-          >
-            <div className="flex items-center gap-1.5">
-              <Database
-                className="h-3 w-3 flex-shrink-0 text-muted-foreground group-hover:text-foreground"
-              />
-              <span className="truncate">{t.tableId}</span>
-            </div>
-          </button>
-
-          {/* Favorite toggle */}
-
-
-          {/* Delete button, only for admins */}
-
+          {/* Table name button with tooltip and ellipsis */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={() => handleTableSelect(t.tableId)}
+                className={`
+                  flex-grow px-2 py-1.5 rounded-md text-left truncate text-xs
+                  transition-colors duration-150 ease-in-out
+                  ${selectedTableId === t.tableId
+                    ? 'bg-primary text-primary-foreground font-medium'
+                    : 'text-foreground hover:bg-muted'}
+                  max-w-[140px]  // limit width to prevent overflow
+                `}
+                style={{ minWidth: 0 }}
+              >
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <Database
+                    className="h-3 w-3 flex-shrink-0 text-muted-foreground group-hover:text-foreground"
+                  />
+                  <span className="truncate block max-w-[110px]" title={t.tableId}>{t.tableId}</span>
+                </div>
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="top" className="break-all max-w-xs">
+              {t.tableId}
+            </TooltipContent>
+          </Tooltip>
         </li>
       );
     })}
   </ul>
 </ScrollArea>
-
         );
     };
     const renderFavoritesList = () => { /* ... NO CHANGES ... */
