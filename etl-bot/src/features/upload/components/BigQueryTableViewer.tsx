@@ -1866,111 +1866,111 @@ useEffect(() => {
         const displayTables = filteredTables.filter(t => t.tableId.toLowerCase().includes(tableSearchQuery.toLowerCase()));
         if(displayTables.length===0){return(<div className="text-center py-8 text-muted-foreground text-sm">No tables found{tableSearchQuery&&` matching "${tableSearchQuery}"`}.</div>);}
         return(
-<ScrollArea className="h-full pb-4">
-  <ul className="space-y-0.5 pr-2">
-    {displayTables.map((t) => {
-      const isFav = favoriteTables.includes(t.tableId);
-      return (
-        <li key={t.tableId} className="flex items-center group">
-          {/* Delete button */}
-            <AlertDialog>
+    <ScrollArea className="h-full pb-4">
+      <ul className="space-y-0.5 pr-2">
+        {displayTables.map((t) => {
+          const isFav = favoriteTables.includes(t.tableId);
+          return (
+            <li key={t.tableId} className="flex items-center group">
+              {/* Delete button */}
+                <AlertDialog>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <AlertDialogTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="
+                            h-[calc(1.5rem+3px)] w-7 p-1 opacity-0 group-hover:opacity-100
+                            focus-visible:opacity-100 transition-opacity rounded-r-md
+                            text-destructive/80 hover:text-destructive hover:bg-destructive/10
+                          "
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </AlertDialogTrigger>
+                    </TooltipTrigger>
+                    <TooltipContent side="right">Delete Table</TooltipContent>
+                  </Tooltip>
+
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Confirm Deletion</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        Are you sure you want to permanently delete the table
+                        <strong className="mx-1">{t.tableId}</strong>
+                        from the workspace
+                        <strong className="mx-1">{selectedDatasetId}</strong>?
+                        <br />
+                        This action cannot be undone.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteTable(selectedDatasetId, t.tableId);
+                        }}
+                        className={cn(buttonVariants({ variant: 'default' }))}
+                      >
+                        Delete Table
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+
+              {/* Favorite toggle */}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  toggleFavorite(t.tableId);
+                }}
+                className={`
+                  ml-1 p-1 rounded-md opacity-0 group-hover:opacity-100 transition-opacity
+                  ${isFav
+                    ? 'text-yellow-500 dark:text-yellow-400 hover:text-yellow-600 dark:hover:text-yellow-300'
+                    : 'text-muted-foreground hover:text-foreground'}
+                `}
+              >
+                <Bookmark
+                  className="h-3 w-3"
+                  fill={isFav ? 'currentColor' : 'none'}
+                />
+              </button>
+              {/* Table name button with tooltip and ellipsis */}
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <AlertDialogTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="
-                        h-[calc(1.5rem+3px)] w-7 p-1 opacity-0 group-hover:opacity-100
-                        focus-visible:opacity-100 transition-opacity rounded-r-md
-                        text-destructive/80 hover:text-destructive hover:bg-destructive/10
-                      "
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </Button>
-                  </AlertDialogTrigger>
-                </TooltipTrigger>
-                <TooltipContent side="right">Delete Table</TooltipContent>
-              </Tooltip>
-
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Confirm Deletion</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    Are you sure you want to permanently delete the table
-                    <strong className="mx-1">{t.tableId}</strong>
-                    from the workspace
-                    <strong className="mx-1">{selectedDatasetId}</strong>?
-                    <br />
-                    This action cannot be undone.
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>Cancel</AlertDialogCancel>
-                  <AlertDialogAction
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleDeleteTable(selectedDatasetId, t.tableId);
-                    }}
-                    className={cn(buttonVariants({ variant: 'default' }))}
+                  <button
+                    onClick={() => handleTableSelect(t.tableId)}
+                    className={`
+                      flex-grow px-2 py-1.5 rounded-md text-left truncate text-xs
+                      transition-colors duration-150 ease-in-out
+                      ${selectedTableId === t.tableId
+                        ? 'bg-primary text-primary-foreground font-medium'
+                        : 'text-foreground hover:bg-muted'}
+                      max-w-[200px]  // increased width to allow more space for table name
+                    `}
+                    style={{ minWidth: 0 }}
                   >
-                    Delete Table
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
-
-          {/* Favorite toggle */}
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              toggleFavorite(t.tableId);
-            }}
-            className={`
-              ml-1 p-1 rounded-md opacity-0 group-hover:opacity-100 transition-opacity
-              ${isFav
-                ? 'text-yellow-500 dark:text-yellow-400 hover:text-yellow-600 dark:hover:text-yellow-300'
-                : 'text-muted-foreground hover:text-foreground'}
-            `}
-          >
-            <Bookmark
-              className="h-3 w-3"
-              fill={isFav ? 'currentColor' : 'none'}
-            />
-          </button>
-          {/* Table name button with tooltip and ellipsis */}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                onClick={() => handleTableSelect(t.tableId)}
-                className={`
-                  flex-grow px-2 py-1.5 rounded-md text-left truncate text-xs
-                  transition-colors duration-150 ease-in-out
-                  ${selectedTableId === t.tableId
-                    ? 'bg-primary text-primary-foreground font-medium'
-                    : 'text-foreground hover:bg-muted'}
-                  max-w-[140px]  // limit width to prevent overflow
-                `}
-                style={{ minWidth: 0 }}
-              >
-                <div className="flex items-center gap-1.5 min-w-0">
-                  <Database
-                    className="h-3 w-3 flex-shrink-0 text-muted-foreground group-hover:text-foreground"
-                  />
-                  <span className="truncate block max-w-[110px]" title={t.tableId}>{t.tableId}</span>
-                </div>
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="top" className="break-all max-w-xs">
-              {t.tableId}
-            </TooltipContent>
-          </Tooltip>
-        </li>
-      );
-    })}
-  </ul>
-</ScrollArea>
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <Database
+                        className="h-3 w-3 flex-shrink-0 text-muted-foreground group-hover:text-foreground"
+                      />
+                      <span className="truncate block max-w-[170px]" title={t.tableId}>{t.tableId}</span>
+                    </div>
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="top" className="break-all max-w-xs">
+                  {t.tableId}
+                </TooltipContent>
+              </Tooltip>
+            </li>
+          );
+        })}
+      </ul>
+    </ScrollArea>
         );
     };
     const renderFavoritesList = () => { /* ... NO CHANGES ... */
