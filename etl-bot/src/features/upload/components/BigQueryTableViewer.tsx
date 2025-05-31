@@ -152,6 +152,9 @@ const BigQueryTableViewer: React.FC = () => {
     const VIEWER_TOUR_VERSION = 'bigQueryTableViewerTour_v2'; // Increment if you change the tour significantly
     //   const { userProfile,  } = useAuth();
     //   const isAdmin = userProfile?.role === 'admin';
+// Inside BigQueryTableViewer.tsx, near other useState hooks
+    const [tablesToDelete, setTablesToDelete] = useState<Set<string>>(new Set());
+    const [isBulkDeleting, setIsBulkDeleting] = useState<boolean>(false); // For loading state on bulk delete button
     const getErrorMessage = useCallback((error: any): string => { 
         {
             const d=error.response?.data; if(d && typeof d==='object' && 'detail' in d)return String(d.detail);
@@ -464,6 +467,21 @@ interface AvailableColumnOption {
     tableName: string;
   }
 
+const handleTableSelectionForDelete = useCallback((tableId: string, checked: boolean) => {
+    setTablesToDelete(prev => {
+        const newSelected = new Set(prev);
+        if (checked) {
+            newSelected.add(tableId);
+        } else {
+            newSelected.delete(tableId);
+        }
+        return newSelected;
+    });
+}, []); // No complex dependencies needed if only using setTablesToDelete
+
+
+
+
 
 const availableColumnsForSelection = useMemo(() => {
     if (aiMode !== 'SEMI_AUTO' || selectedAiTables.size === 0 || !schemaData) {
@@ -746,6 +764,73 @@ useEffect(() => {
 
 
 
+const handleBulkDeleteTables = useCallback(async () => {
+    if (tablesToDelete.size === 0 || !selectedDatasetId) {
+        toast({ title: "No tables selected", description: "Please select tables to delete.", variant: "default" });
+        return;
+    }
+    // Confirmation is now handled by AlertDialog, so direct call here
+    setIsBulkDeleting(true);
+    try {
+        const response = await axiosInstance.post(
+            `/api/bigquery/datasets/${encodeURIComponent(selectedDatasetId)}/tables-bulk-delete`,
+            { table_ids: Array.from(tablesToDelete) }
+        );
+        const { results } = response.data as { results: Array<{table_id: string, status: string, message?: string}>, overall_status: string };
+        
+        let successfulDeletesList: string[] = [];
+        let failedDeletesMessages: string[] = [];
+
+        results.forEach(result => {
+            if (result.status === "deleted") {
+                successfulDeletesList.push(result.table_id);
+            } else {
+                failedDeletesMessages.push(`${result.table_id}: ${result.message || 'Failed'}`);
+            }
+        });
+
+        if (successfulDeletesList.length > 0) {
+            toast({
+                title: "Bulk Deletion Summary",
+                description: `${successfulDeletesList.length} table(s) deleted successfully.`,
+                variant: "default",
+            });
+            const successfulSet = new Set(successfulDeletesList);
+            setTables(prev => prev.filter(t => !successfulSet.has(t.tableId)));
+            // filteredTables will update via its useMemo dependency on `tables`
+            if (selectedTableId && successfulSet.has(selectedTableId)) {
+                setSelectedTableId(null);
+                // Reset preview related states if the active table was deleted
+                setPreviewRows([]); setPreviewColumns([]); setPreviewTotalRows(0); setTableStats(null);
+                setSql(`-- Previously selected table was deleted. Select another table or use AI ✨`);
+            }
+        }
+        if (failedDeletesMessages.length > 0) {
+            toast({
+                title: "Some Deletions Failed",
+                description: `Details: ${failedDeletesMessages.join('; ')}`,
+                variant: "destructive",
+                duration: 10000, // Longer duration for error messages with details
+            });
+        }
+        
+        setTablesToDelete(new Set()); // Clear selection after operation
+        // No need to call fetchTables() or fetchSchema() if backend confirms deletions accurately
+        // and local state is updated. If there's a chance of mismatch, a fetch might be desired.
+        // For now, relying on local state update. Consider adding fetchTables() if needed.
+        // fetchTables(); // Optionally re-fetch to ensure consistency
+        if (successfulDeletesList.length > 0 || failedDeletesMessages.length > 0) { // Or simply always call if any action was attempted
+             console.log("Bulk delete operation performed, refreshing schema...");
+             fetchSchema(); // Assuming fetchSchema is defined and available in this scope
+        }
+        // +++++++++++++++++++++++++++++++++++++++++++++
+    } catch (error: any) {
+        const errorMessage = getErrorMessage(error);
+        toast({ title: "Bulk Deletion API Error", description: errorMessage, variant: "destructive" });
+    } finally {
+        setIsBulkDeleting(false);
+    }
+}, [tablesToDelete, selectedDatasetId, toast, getErrorMessage, setTables, setSelectedTableId, setSql, setPreviewRows, setPreviewColumns, setPreviewTotalRows, setTableStats, fetchSchema  /*, fetchTables (if re-fetching) */]);
 
 
 const filteredData = useMemo(() => {
@@ -1832,120 +1917,230 @@ useEffect(() => {
         }
     }, [isFeedbackModalOpen, feedbackTypeForModal]);
 
-    const renderTablesList = () => { /* ... NO CHANGES ... */
-        if (!selectedDatasetId) return (<div className="text-center py-8 text-muted-foreground text-sm">Select a workspace first.</div>);
-        if(loadingTables){return(<div className="flex justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-primary"/></div>);}
-        if(listTablesError){return(<Alert variant="destructive" className="mt-2 text-xs"><Terminal className="h-4 w-4"/><AlertTitle>Error</AlertTitle><AlertDescription>{listTablesError}</AlertDescription><Button onClick={fetchTables} variant="link" size="sm" className="mt-2 h-auto p-0 text-xs">Try Again</Button></Alert>);}
-        const displayTables = filteredTables.filter(t => t.tableId.toLowerCase().includes(tableSearchQuery.toLowerCase()));
-        if(displayTables.length===0){return(<div className="text-center py-8 text-muted-foreground text-sm">No tables found{tableSearchQuery&&` matching "${tableSearchQuery}"`}.</div>);}
-        return(
-    <ScrollArea className="h-full pb-4">
-      <ul className="space-y-0.5 pr-2">
-        {displayTables.map((t) => {
-          const isFav = favoriteTables.includes(t.tableId);
-          return (
-            <li key={t.tableId} className="flex items-center group">
-              {/* Delete button */}
-                <AlertDialog>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <AlertDialogTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="
-                            h-[calc(1.5rem+3px)] w-7 p-1 opacity-0 group-hover:opacity-100
-                            focus-visible:opacity-100 transition-opacity rounded-r-md
-                            text-destructive/80 hover:text-destructive hover:bg-destructive/10
-                          "
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
-                      </AlertDialogTrigger>
-                    </TooltipTrigger>
-                    <TooltipContent side="right">Delete Table</TooltipContent>
-                  </Tooltip>
-
-                  <AlertDialogContent>
-                    <AlertDialogHeader>
-                      <AlertDialogTitle>Confirm Deletion</AlertDialogTitle>
-                      <AlertDialogDescription>
-                        Are you sure you want to permanently delete the table
-                        <strong className="mx-1">{t.tableId}</strong>
-                        from the workspace
-                        <strong className="mx-1">{selectedDatasetId}</strong>?
-                        <br />
-                        This action cannot be undone.
-                      </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                      <AlertDialogCancel>Cancel</AlertDialogCancel>
-                      <AlertDialogAction
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDeleteTable(selectedDatasetId, t.tableId);
-                        }}
-                        className={cn(buttonVariants({ variant: 'default' }))}
-                      >
-                        Delete Table
-                      </AlertDialogAction>
-                    </AlertDialogFooter>
-                  </AlertDialogContent>
-                </AlertDialog>
-
-              {/* Favorite toggle */}
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  toggleFavorite(t.tableId);
-                }}
-                className={`
-                  ml-1 p-1 rounded-md opacity-0 group-hover:opacity-100 transition-opacity
-                  ${isFav
-                    ? 'text-yellow-500 dark:text-yellow-400 hover:text-yellow-600 dark:hover:text-yellow-300'
-                    : 'text-muted-foreground hover:text-foreground'}
-                `}
-              >
-                <Bookmark
-                  className="h-3 w-3"
-                  fill={isFav ? 'currentColor' : 'none'}
-                />
-              </button>
-              {/* Table name button with tooltip and ellipsis */}
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    onClick={() => handleTableSelect(t.tableId)}
-                    className={`
-                      flex-grow px-2 py-1.5 rounded-md text-left truncate text-xs
-                      transition-colors duration-150 ease-in-out
-                      ${selectedTableId === t.tableId
-                        ? 'bg-primary text-primary-foreground font-medium'
-                        : 'text-foreground hover:bg-muted'}
-                      max-w-[200px]  // increased width to allow more space for table name
-                    `}
-                    style={{ minWidth: 0 }}
-                  >
-                    <div className="flex items-center gap-1.5 min-w-0">
-                      <Database
-                        className="h-3 w-3 flex-shrink-0 text-muted-foreground group-hover:text-foreground"
-                      />
-                      <span className="truncate block max-w-[170px]" title={t.tableId}>{t.tableId}</span>
-                    </div>
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="top" className="break-all max-w-xs">
-                  {t.tableId}
-                </TooltipContent>
-              </Tooltip>
-            </li>
-          );
-        })}
-      </ul>
-    </ScrollArea>
+const renderTablesList = () => {
+    // --- Existing initial checks (no changes here) ---
+    if (!selectedDatasetId) {
+        return (<div className="text-center py-8 text-muted-foreground text-sm">Select a workspace first.</div>);
+    }
+    if (loadingTables) {
+        return (<div className="flex justify-center items-center h-full"><Loader2 className="h-6 w-6 animate-spin text-primary"/></div>);
+    }
+    if (listTablesError) {
+        return (
+            <Alert variant="destructive" className="mt-2 text-xs">
+                <Terminal className="h-4 w-4"/>
+                <AlertTitle>Error Loading Tables</AlertTitle>
+                <AlertDescription>{listTablesError}</AlertDescription>
+                <Button onClick={fetchTables} variant="link" size="sm" className="mt-2 h-auto p-0 text-xs">Try Again</Button>
+            </Alert>
         );
-    };
+    }
+    
+    const displayTables = filteredTables.filter(t => t.tableId.toLowerCase().includes(tableSearchQuery.toLowerCase()));
+
+    if (displayTables.length === 0 && !tableSearchQuery) {
+        return (<div className="text-center py-8 text-muted-foreground text-sm">No tables found in this workspace.</div>);
+    }
+    if (displayTables.length === 0 && tableSearchQuery) {
+         return (<div className="text-center py-8 text-muted-foreground text-sm">No tables found matching "{tableSearchQuery}".</div>);
+    }
+
+    // --- Main return with modifications for multi-select delete ---
+    return (
+        // Parent container to manage layout, including the new "Delete Selected" button area
+        <div className="h-full flex flex-col"> 
+            {/* +++ Bulk Delete Button (conditionally rendered) +++ */}
+            {tablesToDelete.size > 0 && (
+                <div className="p-2 border-b flex-shrink-0 sticky top-0 bg-card z-10">
+                    {/* AlertDialog for Bulk Delete Confirmation */}
+                    <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                            <Button
+                                variant="destructive"
+                                size="sm"
+                                className="w-full h-8 text-xs font-medium"
+                                disabled={isBulkDeleting || tablesToDelete.size === 0}
+                            >
+                                {isBulkDeleting ? (
+                                    <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                                ) : (
+                                    <Trash2 className="mr-2 h-3.5 w-3.5" />
+                                )}
+                                Delete Selected ({tablesToDelete.size})
+                            </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                            <AlertDialogHeader>
+                                <AlertDialogTitle>Confirm Bulk Deletion</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                    Are you sure you want to permanently delete the selected {tablesToDelete.size} table(s)?
+                                    <ScrollArea className="max-h-[200px] my-2 border rounded-md">
+                                        <ul className="p-2 text-sm">
+                                            {Array.from(tablesToDelete).map(tid => <li key={tid} className="font-mono">{tid}</li>)}
+                                        </ul>
+                                    </ScrollArea>
+                                    This action cannot be undone.
+                                </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                <AlertDialogAction
+                                    onClick={handleBulkDeleteTables} // This function should handle the API call
+                                    className={cn(buttonVariants({ variant: "destructive" }))}
+                                >
+                                    Delete {tablesToDelete.size} Table(s)
+                                </AlertDialogAction>
+                            </AlertDialogFooter>
+                        </AlertDialogContent>
+                    </AlertDialog>
+                </div>
+            )}
+
+            <ScrollArea className="flex-grow pb-4 pt-1">
+                <ul className="space-y-0.5 pr-2">
+                    {displayTables.map((t) => {
+                        const isFav = favoriteTables.includes(t.tableId);
+                        // Using 'isChecked' variable as per your original snippet for the checkbox state
+                        const isChecked = tablesToDelete.has(t.tableId); 
+
+                        return (
+                            <li 
+                                key={t.tableId} 
+                                className={cn(
+                                    "flex items-center group rounded-md transition-colors duration-100",
+                                    isChecked 
+                                        ? "bg-destructive/10 hover:bg-destructive/15" 
+                                        : "hover:bg-muted/50",
+                                    selectedTableId === t.tableId && !isChecked // Highlight for preview if not selected for delete
+                                        ? "bg-primary/10 hover:bg-primary/15" 
+                                        : ""
+                                )}
+                            >
+                                {/* Checkbox for bulk delete - using your input type="checkbox" */}
+                                <div className="px-1.5 py-1 flex-shrink-0 self-stretch flex items-center">
+                                    <input
+                                        type="checkbox"
+                                        id={`cb-delete-${t.tableId}`} // Added id for label association
+                                        checked={isChecked}
+                                        onChange={e => handleTableSelectionForDelete(t.tableId, e.target.checked)}
+                                        className={cn(
+                                            "mr-2 accent-primary h-4 w-4 rounded focus:ring-primary focus:ring-2 focus:ring-offset-1",
+                                            isChecked ? "accent-destructive" : "accent-primary" // Conditional accent color
+                                        )}
+                                        onClick={e => e.stopPropagation()}
+                                        aria-label={`Select table ${t.tableId} for deletion`}
+                                    />
+                                </div>
+                                
+                                {/* Table name button (becomes main clickable area) */}
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <button
+                                            onClick={() => {
+                                                if (!isChecked) { // Only allow preview selection if not marked for delete
+                                                    handleTableSelect(t.tableId);
+                                                }
+                                            }}
+                                            className={cn(
+                                                `flex-grow px-2 py-1.5 text-left truncate text-xs transition-colors duration-150 ease-in-out rounded-r-md`, // ensure it can take space
+                                                selectedTableId === t.tableId && !isChecked
+                                                    ? 'text-primary font-semibold' // Active preview style
+                                                    : isChecked
+                                                        ? 'cursor-default' // Less interactive if checked for delete
+                                                        : 'text-foreground hover:text-primary/80',
+                                                'max-w-[calc(100%-rem)]' // Example, adjust as needed
+                                            )}
+                                            style={{ minWidth: 0 }}
+                                            disabled={isChecked && selectedTableId === t.tableId} // Minor: disable if active preview and also checked
+                                        >
+                                            <div className="flex items-center gap-1.5 min-w-0">
+                                                <Database
+                                                    className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground group-hover:text-foreground"
+                                                />
+                                                <span 
+                                                    className={cn(
+                                                        "truncate block", 
+                                                        isChecked ? "line-through text-destructive/70" : (selectedTableId === t.tableId ? "text-primary" : "text-foreground")
+                                                    )} 
+                                                    title={t.tableId}
+                                                >
+                                                    {t.tableId}
+                                                </span>
+                                            </div>
+                                        </button>
+                                    </TooltipTrigger>
+                                    <TooltipContent side="top" className="break-all max-w-xs bg-popover text-popover-foreground p-1.5 text-xs">
+                                        {t.tableId}
+                                    </TooltipContent>
+                                </Tooltip>
+
+                                {/* Favorite toggle - hide if selected for delete */}
+                                {!isChecked && (
+                                    <Tooltip>
+                                        <TooltipTrigger asChild>
+                                            <button
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    toggleFavorite(t.tableId);
+                                                }}
+                                                className={cn(
+                                                    "ml-auto p-1.5 rounded-md opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity flex-shrink-0",
+                                                    isFav ? 'text-yellow-500 hover:text-yellow-400' : 'text-muted-foreground hover:text-foreground'
+                                                )}
+                                                aria-label={isFav ? "Remove from favorites" : "Add to favorites"}
+                                            >
+                                                <Bookmark className="h-3.5 w-3.5" fill={isFav ? 'currentColor' : 'none'} />
+                                            </button>
+                                        </TooltipTrigger>
+                                        <TooltipContent side="right" className="text-xs">{isFav ? "Unfavorite" : "Favorite"}</TooltipContent>
+                                    </Tooltip>
+                                )}
+                                
+                                {/* Single Delete button (from your original code, now also hidden if selected for bulk delete) */}
+                                {!isChecked && (
+                                    <AlertDialog>
+                                      <Tooltip>
+                                        <TooltipTrigger asChild>
+                                          <AlertDialogTrigger asChild>
+                                          </AlertDialogTrigger>
+                                        </TooltipTrigger>
+                                        <TooltipContent side="right" className="text-xs">Delete Table</TooltipContent>
+                                      </Tooltip>
+                                      <AlertDialogContent>
+                                        <AlertDialogHeader>
+                                          <AlertDialogTitle>Confirm Deletion</AlertDialogTitle>
+                                          <AlertDialogDescription>
+                                            Are you sure you want to permanently delete the table
+                                            <strong className="mx-1">{t.tableId}</strong>
+                                            from the workspace
+                                            <strong className="mx-1">{selectedDatasetId}</strong>?
+                                            <br />This action cannot be undone.
+                                          </AlertDialogDescription>
+                                        </AlertDialogHeader>
+                                        <AlertDialogFooter>
+                                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                          <AlertDialogAction
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              handleDeleteTable(selectedDatasetId, t.tableId);
+                                            }}
+                                            className={cn(buttonVariants({ variant: "destructive" }))}
+                                          >
+                                            Delete Table
+                                          </AlertDialogAction>
+                                        </AlertDialogFooter>
+                                      </AlertDialogContent>
+                                    </AlertDialog>
+                                )}
+                            </li>
+                        );
+                    })}
+                </ul>
+            </ScrollArea>
+        </div>
+    );
+};
+
     const renderFavoritesList = () => { /* ... NO CHANGES ... */
         const favsInCurrentDataset = tables.filter(t => favoriteTables.includes(t.tableId));
     if(favsInCurrentDataset.length === 0) return (<div className="text-center py-8 text-muted-foreground text-sm">No favorites{selectedDatasetId ? ` in ${selectedDatasetId}` : ''}.</div>);
