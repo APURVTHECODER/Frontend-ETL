@@ -48,19 +48,30 @@ const isFilterActive = (columnName: string, activeFilters: ActiveFilters): boole
 // CategoricalFilter Component - Modified to include Inversion Switch
 const CategoricalFilter: React.FC<{
     config: FilterConfig;
-    currentFilterValue?: ActualCategoricalFilterValue; // Changed name to avoid conflict
-    onChange: (newFilterValue: ActualCategoricalFilterValue | null) => void; // Allow null for clearing
+    currentFilterValue?: ActualCategoricalFilterValue;
+    onChange: (newFilterValue: ActualCategoricalFilterValue | null) => void;
 }> = ({ config, currentFilterValue, onChange }) => {
     const options = config.options || [];
     const selectedValues = currentFilterValue?.selected || [];
     const isInverted = currentFilterValue?.isInverted || false;
 
+    // --- Add search state for filtering options ---
+    const [search, setSearch] = useState<string>("");
+
+    // Filtered options based on search
+    const filteredOptions = useMemo(() => {
+        if (!search.trim()) return options;
+        return options.filter(option =>
+            option?.toLowerCase().includes(search.trim().toLowerCase())
+        );
+    }, [options, search]);
+
     const handleSelectionChange = (option: string, checked: boolean) => {
         const newSelected = checked
             ? [...selectedValues, option]
             : selectedValues.filter(item => item !== option);
-        
-        if (newSelected.length === 0 && !isInverted) { // If nothing selected and not inverted, clear the filter
+
+        if (newSelected.length === 0 && !isInverted) {
             onChange(null);
         } else {
             onChange({ type: 'categorical', selected: newSelected, isInverted });
@@ -69,20 +80,16 @@ const CategoricalFilter: React.FC<{
 
     const handleInversionToggle = () => {
         const newInvertedState = !isInverted;
-        // If becoming non-inverted and nothing is selected, clear the filter entirely
         if (!newInvertedState && selectedValues.length === 0) {
             onChange(null);
         } else {
             onChange({ type: 'categorical', selected: selectedValues, isInverted: newInvertedState });
         }
     };
-    
-    const handleClearSelection = () => {
-        // If inverted, clearing selection means it shows all (no filter).
-        // If not inverted, clearing selection also means no filter.
-        onChange(null); 
-    };
 
+    const handleClearSelection = () => {
+        onChange(null);
+    };
 
     return (
         <div className="space-y-1.5">
@@ -103,10 +110,23 @@ const CategoricalFilter: React.FC<{
                     <div className='p-2 border-b'>
                         <p className='text-xs font-medium text-muted-foreground'>{config.label}</p>
                     </div>
-                    <ScrollArea className="h-auto max-h-[180px]"> {/* Adjusted max height */}
+                    {/* --- Search input for filtering options --- */}
+                    <div className="px-2 pt-2 pb-1">
+                        <Input
+                            type="text"
+                            value={search}
+                            onChange={e => setSearch(e.target.value)}
+                            placeholder="Search options..."
+                            className="h-7 text-xs"
+                        />
+                    </div>
+                    {/* Make the ScrollArea always a fixed height for scrolling */}
+                    <ScrollArea className="h-[180px] max-h-[180px]">
                         <div className="p-2 space-y-1">
-                            {options.length === 0 && <p className="text-xs text-muted-foreground p-1 text-center italic">No options available</p>}
-                            {options.map((option) => (
+                            {filteredOptions.length === 0 && (
+                                <p className="text-xs text-muted-foreground p-1 text-center italic">No options found</p>
+                            )}
+                            {filteredOptions.map((option) => (
                                 <div key={option} className="flex items-center space-x-2 hover:bg-muted/50 rounded-sm px-1 py-0.5">
                                     <Checkbox
                                         id={`${config.columnName}-${option}-checkbox`}
@@ -134,8 +154,6 @@ const CategoricalFilter: React.FC<{
                     )}
                 </PopoverContent>
             </Popover>
-            {/* +++ Inversion Toggle for Categorical Filters +++ */}
-            {/* Show toggle if either items are selected OR if it's already inverted (to allow un-inverting to an empty selection) */}
             {(selectedValues.length > 0 || isInverted) && (
                 <div className="mt-1.5 flex items-center justify-end space-x-2 pt-1.5 border-t border-dashed border-border/70">
                     <Label htmlFor={`invert-${config.columnName}`} className="text-xs text-muted-foreground cursor-pointer hover:text-foreground">
@@ -152,6 +170,7 @@ const CategoricalFilter: React.FC<{
         </div>
     );
 };
+
 
 
 // DateRangeFilter, NumericRangeFilter, TextSearchFilter components
