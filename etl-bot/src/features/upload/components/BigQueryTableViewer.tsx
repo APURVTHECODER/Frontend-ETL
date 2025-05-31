@@ -745,88 +745,139 @@ useEffect(() => {
     }, [getErrorMessage]); // Removed setCurrentOutputTab dependency
 
 
-    const filteredData = useMemo(() => {
-        if (!jobResults?.rows) {
-            return []; // No base data
+
+
+
+const filteredData = useMemo(() => {
+    if (!jobResults?.rows) {
+        return []; // No base data to filter
+    }
+
+    // Determine if any filters are meaningfully active
+    const activeFilterKeys = Object.keys(activeFilters).filter(key => {
+        const filter = activeFilters[key];
+        if (!filter) return false; // No filter defined for this key
+
+        switch (filter.type) {
+            case 'categorical':
+                // A categorical filter is active if items are selected OR if it's inverted
+                // (an inverted filter with no selection means "show all not in []" which is everything,
+                // but it's still an "active" filter conceptually).
+                // However, for deciding if *any* filtering should occur,
+                // it's more about whether it restricts data.
+                // Let's consider it active if selected.length > 0 OR if it's inverted.
+                // The actual filtering logic below will handle the empty selection + inversion case.
+                return filter.selected.length > 0 || (filter.isInverted || false);
+            case 'dateRange':
+                return filter.start !== null || filter.end !== null;
+            case 'numericRange':
+                return filter.min !== null || filter.max !== null;
+            case 'textSearch':
+                return filter.term.trim() !== '';
+            default:
+                // Should not happen with typed filters
+                const exhaustiveCheck: never = filter;
+                return false;
         }
-        // Check if any filters are actually active
-        const activeFilterKeys = Object.keys(activeFilters).filter(key => {
-             const filter = activeFilters[key];
-             if (!filter) return false;
-             switch (filter.type) {
-                 case 'categorical': return filter.selected.length > 0;
-                 case 'dateRange': return filter.start !== null || filter.end !== null;
-                 case 'numericRange': return filter.min !== null || filter.max !== null;
-                 case 'textSearch': return filter.term.trim() !== '';
-                 default: return false;
-             }
-         });
+    });
 
-        if (activeFilterKeys.length === 0) {
-            return jobResults.rows; // Return original rows if no filters are active
-        }
+    // If no filters are meaningfully active, return all original rows
+    if (activeFilterKeys.length === 0) {
+        return jobResults.rows;
+    }
 
-        // console.log("Applying filters:", activeFilters);
-        let data = [...jobResults.rows];
+    // console.log("Applying filters:", JSON.parse(JSON.stringify(activeFilters))); // For deep debugging
 
-        Object.entries(activeFilters).forEach(([columnName, filterValue]) => {
-             if (!filterValue) return;
+    let dataToFilter = [...jobResults.rows]; // Start with a copy of all rows
 
-            data = data.filter(row => {
-                 const rowValue = row[columnName];
+    // Iterate over each active filter configuration
+    Object.entries(activeFilters).forEach(([columnName, filterValue]) => {
+        if (!filterValue) return; // Should have been caught by activeFilterKeys, but defensive
 
-                switch (filterValue.type) {
-                    case 'categorical':
-                        // Handle null/undefined in categorical selection
-                        const rowValueString = rowValue === null || rowValue === undefined ? '(empty)' : String(rowValue);
-                        return filterValue.selected.includes(rowValueString);
+        dataToFilter = dataToFilter.filter(row => {
+            const rowValue = row[columnName];
 
-                    case 'numericRange': {
-                        if (rowValue === null || rowValue === undefined) return false; // Exclude nulls from range
-                        const numValue = Number(rowValue);
-                        if (isNaN(numValue)) return false; // Exclude non-numeric values
-                        const minOk = filterValue.min === null || numValue >= filterValue.min;
-                        const maxOk = filterValue.max === null || numValue <= filterValue.max;
-                        return minOk && maxOk;
+            switch (filterValue.type) {
+                case 'categorical':
+                    // Ensure filterValue has 'selected' and 'isInverted' (with defaults)
+                    const selectedItems = filterValue.selected || [];
+                    const isInverted = filterValue.isInverted || false;
+
+                    // Handle how empty values in data are represented for comparison
+                    const rowValueString = rowValue === null || rowValue === undefined ? '(empty)' : String(rowValue);
+
+                    if (selectedItems.length === 0) {
+                        // If no items are selected in the filter UI:
+                        // - If inverted is true ("exclude nothing from an empty set"), it means this specific filter allows all rows to pass.
+                        // - If inverted is false ("include nothing from an empty set"), it means this specific filter allows no rows to pass.
+                        return isInverted ? true : false;
                     }
-                    case 'dateRange': {
-                        if (rowValue === null || rowValue === undefined) return false; // Exclude nulls from date range
-                        try {
-                             let dateValue: Date | null = null;
-                             const dateStr = String(rowValue);
-                             dateValue = parseISO(dateStr); // Try ISO first
-                             if (!isValid(dateValue)) dateValue = new Date(dateStr); // Fallback
-                             if (!isValid(dateValue)) return false; // Cannot parse row date
 
-                             const timeValue = dateValue.getTime();
+                    // Check if the current row's value is among the selected items
+                    const isActuallySelected = selectedItems.includes(rowValueString);
+                    
+                    // Apply inversion logic
+                    return isInverted ? !isActuallySelected : isActuallySelected;
 
-                             // Start date comparison (inclusive)
-                             const startOk = !filterValue.start || timeValue >= filterValue.start.getTime();
+                case 'numericRange': {
+                    if (rowValue === null || rowValue === undefined) return false; // Exclude rows with null/undefined values for this column from range filtering
+                    const numValue = Number(rowValue);
+                    if (isNaN(numValue)) return false; // Exclude rows where value isn't a valid number
 
-                             // End date comparison (inclusive of the whole day)
-                             let endOfDay = filterValue.end;
-                             if (endOfDay) {
-                                 endOfDay = new Date(endOfDay);
-                                 endOfDay.setHours(23, 59, 59, 999); // Set to end of the selected day
-                             }
-                             const endOk = !endOfDay || timeValue <= endOfDay.getTime();
-
-                             return startOk && endOk;
-                        } catch { return false; }
-                     }
-                    case 'textSearch':
-                         if (rowValue === null || rowValue === undefined) return false; // Exclude nulls from search
-                        return String(rowValue).toLowerCase().includes(filterValue.term.toLowerCase());
-                    default:
-                        return true; // No filter applied for unknown types
+                    const minOk = filterValue.min === null || numValue >= filterValue.min;
+                    const maxOk = filterValue.max === null || numValue <= filterValue.max;
+                    return minOk && maxOk;
                 }
-            });
+                case 'dateRange': {
+                    if (rowValue === null || rowValue === undefined) return false; // Exclude rows with null/undefined date values
+                    try {
+                        let dateValue: Date | null = null;
+                        const dateStr = String(rowValue);
+                        
+                        // Attempt to parse various common date(time) string formats
+                        // ISO 8601 with or without T, with or without Z, with or without millis
+                        if (/^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})?)?$/.test(dateStr)) {
+                            dateValue = parseISO(dateStr);
+                        } else {
+                             dateValue = new Date(dateStr); // Fallback to generic Date constructor
+                        }
+                        
+                        if (!isValid(dateValue)) return false; // If still not valid after attempts, exclude row
+
+                        const timeValue = dateValue.getTime();
+
+                        const startOk = !filterValue.start || timeValue >= filterValue.start.getTime();
+
+                        let endOfDay = filterValue.end;
+                        if (endOfDay) {
+                            endOfDay = new Date(endOfDay); // Ensure it's a Date object
+                            endOfDay.setHours(23, 59, 59, 999); // Compare against the very end of the selected end day
+                        }
+                        const endOk = !endOfDay || timeValue <= endOfDay.getTime();
+
+                        return startOk && endOk;
+                    } catch {
+                        return false; // If any error during date parsing, exclude row
+                    }
+                }
+                case 'textSearch':
+                    if (rowValue === null || rowValue === undefined) return false; // Exclude nulls from text search
+                    return String(rowValue).toLowerCase().includes(filterValue.term.toLowerCase());
+                default:
+                    // For any unhandled filter type, don't filter out the row
+                    const exhaustiveCheck: never = filterValue; // Helps ensure all cases are handled if using a strict union
+                    return true;
+            }
         });
-        // console.log("Filtered data count:", data.length);
-        return data;
-    }, [jobResults?.rows, activeFilters]);
-    
-    
+    });
+
+    // console.log("Filtered data count:", dataToFilter.length); // For debugging
+    return dataToFilter;
+}, [jobResults?.rows, activeFilters]); // Dependencies for the memoization
+
+
+
+
 
     // fetchJobStatus: Mostly unchanged, triggers fetchJobResults
     const fetchJobStatus = useCallback(async (currentJobId: string, loc: string) => { 

@@ -31,6 +31,7 @@ export interface BatchStatusApiResponse {
 export interface ApiErrorResponse {
   detail: string;
 }
+
 // For individual files
 export type ETLFileStatus = 
   | 'pending'               // Waiting to be uploaded
@@ -60,6 +61,10 @@ export interface ETLFile {
   backendFileId?: string;  
   applyAiSmartCleanup?: boolean;
   textNormalizationMode?: string;
+  enableUnpivot?: boolean;
+  unpivotIdCols?: string; // Comma-separated string
+  unpivotVarName?: string;
+  unpivotValueName?: string;
 }
 
 // For the overall UI processing stage

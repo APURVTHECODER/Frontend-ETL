@@ -36,7 +36,11 @@ export function UploadView() {
   const [processingStage, setProcessingStage] = useState<ProcessingStage>('idle');
   const [isUploading, setIsUploading] = useState<boolean>(false);
   const { toast } = useToast();
-  
+// Inside UploadView component, near other useState hooks
+  const [enableUnpivot, setEnableUnpivot] = useState<boolean>(false);
+  const [unpivotIdCols, setUnpivotIdCols] = useState<string>(""); // Comma-separated string for now
+  const [unpivotVarName, setUnpivotVarName] = useState<string>("Attribute"); // Default name
+  const [unpivotValueName, setUnpivotValueName] = useState<string>("Value");   // Default name  
   const { userProfile, isRoleLoading } = useAuth();
   const isAdmin = userProfile?.role === 'admin';
   // Inside UploadView component, near other useState hooks
@@ -73,6 +77,7 @@ const TEXT_NORMALIZATION_MODES = [
   { value: "lower_case_trim", label: "lower case & Trim" },
   { value: "upper_case_trim", label: "UPPER CASE & Trim" },
   { value: "trim_only", label: "Trim Whitespace Only" },
+  { value: "trim_preserve_internal_sep", label: "Trim & Preserve Internal Separators" },
   // Optional: Add more later if desired
   // { value: "remove_special_chars_trim", label: "Remove Special Chars & Trim" },
 ];
@@ -243,6 +248,11 @@ const newETLFiles: ETLFile[] = validFiles.map((file): ETLFile => {
     const currentHeaderDepthForThisFile = isMultiHeaderMode && typeof headerDepth === 'number' ? headerDepth : undefined;
     const currentEnableAiCleanupForThisFile = enableAiSmartCleanup; 
     const currentTextNormalizationModeForThisFile = enableAiSmartCleanup ? textNormalizationMode : undefined;
+      // +++ NEW: Capture current unpivot settings +++
+    const currentEnableUnpivotForThisFile = enableUnpivot;
+    const currentUnpivotIdColsForThisFile = enableUnpivot ? unpivotIdCols : undefined;
+    const currentUnpivotVarNameForThisFile = enableUnpivot ? (unpivotVarName || "Attribute") : undefined; // Ensure default if empty
+    const currentUnpivotValueNameForThisFile = enableUnpivot ? (unpivotValueName || "Value") : undefined; // Ensure default if empty
     // Log them
     // console.log(
     //     `[handleFilesAdded MAPPING FILE] For: ${file.name}, ` +
@@ -266,6 +276,10 @@ const newETLFiles: ETLFile[] = validFiles.map((file): ETLFile => {
         headerDepth: currentHeaderDepthForThisFile,     // Use the captured value
         applyAiSmartCleanup: currentEnableAiCleanupForThisFile,
         textNormalizationMode: currentTextNormalizationModeForThisFile,
+        enableUnpivot: currentEnableUnpivotForThisFile,
+        unpivotIdCols: currentUnpivotIdColsForThisFile,
+        unpivotVarName: currentUnpivotVarNameForThisFile,
+        unpivotValueName: currentUnpivotValueNameForThisFile,
     };
 });
       setFiles(prevFiles => {
@@ -285,7 +299,7 @@ const newETLFiles: ETLFile[] = validFiles.map((file): ETLFile => {
         
         return combinedFiles;
       });
-  }, [files, selectedDatasetId, toast, MAX_FILE_SIZE_BYTES, MAX_FILE_SIZE_MB, MAX_CONCURRENT_FILES, isMultiHeaderMode, headerDepth,enableAiSmartCleanup,textNormalizationMode  ]);
+  }, [files, selectedDatasetId, toast, MAX_FILE_SIZE_BYTES, MAX_FILE_SIZE_MB, MAX_CONCURRENT_FILES, isMultiHeaderMode, headerDepth,enableAiSmartCleanup,textNormalizationMode, enableUnpivot, unpivotIdCols, unpivotVarName, unpivotValueName  ]);
 
   // CRITICAL FIX: Create a separate ref to track the latest files state
   const filesRef = useRef<ETLFile[]>([]);
@@ -366,7 +380,12 @@ const newETLFiles: ETLFile[] = validFiles.map((file): ETLFile => {
           apply_ai_smart_cleanup: file.applyAiSmartCleanup,
           original_file_name: file.name ,
           text_normalization_mode: file.textNormalizationMode,
-        
+          // +++ NEW: Add unpivot settings to payload +++
+          // Ensure keys match what backend API expects (e.g., enable_unpivot)
+          enable_unpivot: file.enableUnpivot, // Changed key to snake_case for backend consistency
+          unpivot_id_cols_str: file.unpivotIdCols, // Pass as string
+          unpivot_var_name: file.unpivotVarName,
+          unpivot_value_name: file.unpivotValueName,
         };
         
         const triggerResp = await axiosInstance.post<{
@@ -667,9 +686,32 @@ const newETLFiles: ETLFile[] = validFiles.map((file): ETLFile => {
 
   const totalFiles = files.length;
   const filesWithError = files.filter(f => f.status === 'error').length;
+
+
+  // Collapsible state for Data Cleaning & Transformation block
+  const [showDataCleaning, setShowDataCleaning] = useState(false);
+
+  // --- Success Upload Animation State ---
+  const [showUploadSuccess, setShowUploadSuccess] = useState(false);
+
+  // Show "Upload Complete" animation when all files finish uploading successfully
+  useEffect(() => {
+    // Show only if there are files, all are completed_successfully, and at least one was uploading before
+    if (
+      files.length > 0 &&
+      files.every(f => f.status === 'completed_successfully') &&
+      processingStage === 'completed_all'
+    ) {
+      setShowUploadSuccess(true);
+      const timer = setTimeout(() => setShowUploadSuccess(false), 2200);
+      return () => clearTimeout(timer);
+    }
+  }, [files, processingStage]);
+
   return (
     <>
-       <Joyride
+      {/* Upload Complete Animation */}
+      <Joyride
         steps={uploadTourSteps}
         run={runTour}
         continuous
@@ -707,260 +749,460 @@ const newETLFiles: ETLFile[] = validFiles.map((file): ETLFile => {
           back: 'Back',
         }}
       />
-    <div className="container mx-auto px-4 py-8 max-w-5xl space-y-8">
-      <UploadHeader />
+      <div className="container mx-auto px-4 py-8 max-w-5xl space-y-8">
+        <UploadHeader />
 
-      {/* --- CORRECTED Dataset Selector Section --- */}
-
-      <div id="tour-step-workspace-selection" className="p-4 border rounded-lg bg-card shadow-sm space-y-3">
+        {/* --- Dataset Selector Section --- */}
+        <div id="tour-step-workspace-selection" className="p-4 border rounded-lg bg-card shadow-sm space-y-3 animate-fade-in">
           <Label htmlFor="dataset-select" className="block text-sm font-medium text-muted-foreground">
-          Workspace <span className="text-destructive">*</span>
+            Workspace <span className="text-destructive">*</span>
           </Label>
           <DatasetActions
-                        isAdmin={isAdmin}
-                        isRoleLoading={isRoleLoading}
-                        isLoadingDatasets={loadingDatasets}
-                        selectedDatasetId={selectedDatasetId || null} // Pass null if nothing is selected
-                        isProcessing={isProcessing} // Pass combined processing state
-                        onDatasetCreated={handleDatasetCreated} // Callback for create button
-                        onDeleteConfirmed={handleDeleteDatasetConfirmed} // Callback for delete button
-                        canUserCreateWorkspace={canCreateWorkspace} 
-                        hasExistingWorkspaces={availableDatasets.length > 0}
-                    />
-          {/* Loading State */}
+            isAdmin={isAdmin}
+            isRoleLoading={isRoleLoading}
+            isLoadingDatasets={loadingDatasets}
+            selectedDatasetId={selectedDatasetId || null}
+            isProcessing={isProcessing}
+            onDatasetCreated={handleDatasetCreated}
+            onDeleteConfirmed={handleDeleteDatasetConfirmed}
+            canUserCreateWorkspace={canCreateWorkspace}
+            hasExistingWorkspaces={availableDatasets.length > 0}
+          />
           {loadingDatasets && (
-              <div className="flex items-center text-sm text-muted-foreground">
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading Workspace...
-              </div>
-          )}
-
-          {/* Error State */}
-          {!loadingDatasets && datasetError && !availableDatasets.length && (
-              <Alert variant="destructive">
-                  <Terminal className="h-4 w-4" />
-                  <AlertTitle>No Workspace Found</AlertTitle>
-                  <AlertDescription>
-                      {datasetError}
-                  </AlertDescription>
-              </Alert>
-          )}
-
-          {/* Dataset Selector and Create Button (Displayed when not loading and no critical error preventing listing) */}
-          {!loadingDatasets && !datasetError && (
-              <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-                  {/* Select Dropdown */}
-                  <Select
-                      value={selectedDatasetId}
-                      onValueChange={setSelectedDatasetId}
-                      disabled={
-                          isUploading || // Disable during active upload
-                          processingStage === 'uploading' // Disable during processing stage
-                          // Allow selection even if availableDatasets is empty initially, user might create one
-                      }
-                  >
-                      <SelectTrigger id="dataset-select" className="w-full sm:flex-grow sm:w-auto">
-                          {/* Use flex-grow on trigger for better responsiveness */}
-                          <SelectValue placeholder="Select a Workspace or create new..." />
-                      </SelectTrigger>
-                      <SelectContent>
-                          {availableDatasets.length === 0 ? (
-                              <div className="px-4 py-2 text-sm text-muted-foreground italic">
-                                  No workspace found. Create one?
-                              </div>
-                          ) : (
-                              availableDatasets.map(ds => (
-                                  <SelectItem key={ds.datasetId} value={ds.datasetId}>
-                                      {ds.datasetId}
-                                  </SelectItem>
-                              ))
-                          )}
-                      </SelectContent>
-                  </Select>
-
-  {/* +++ Conditional Rendering/Disabling based on Role +++ */}
-  
-              </div>
-          )}
-
-           {/* Helper text */}
-          <p className="text-xs text-muted-foreground pt-1">
-               Select the Workspace where your uploaded files will be processed, or create a new one.
-          </p>
-      </div>
-      
-      {/* --- END Dataset Selector Section --- */}
-        <div className="p-4 border rounded-lg bg-card shadow-sm space-y-3">
-          <div className="flex items-center space-x-2">
-            <Checkbox
-              id="multi-header-toggle"
-              checked={isMultiHeaderMode}
-              onCheckedChange={(checked) => setIsMultiHeaderMode(Boolean(checked))}
-              disabled={!selectedDatasetId || loadingDatasets || !!datasetError || isUploading || processingStage === 'uploading'}
-            />
-            <Label htmlFor="multi-header-toggle" className="text-sm font-medium">
-              Process files with multi-row headers
-            </Label>
-          </div>
-            <div className="flex items-start p-2 text-xs rounded-md bg-orange-50 dark:bg-orange-900/30 border border-orange-200 dark:border-orange-700/50 text-orange-700 dark:text-orange-300">
-            <Info className="h-4 w-4 mr-2 flex-shrink-0 mt-0.5" /> {/* Or BeakerIcon */}
-            <span>
-              This multi-header feature is currently in Beta Phase. Results may vary, and we appreciate your feedback!
-            </span>
-          </div>
-                        <div className="flex items-start p-2 text-xs rounded-md bg-yellow-50 dark:bg-yellow-900/40 border border-yellow-300 dark:border-yellow-700/60 text-yellow-700 dark:text-yellow-300 mt-2">
-                <AlertTriangle className="h-4 w-4 mr-2 flex-shrink-0 mt-0.5" />
-                <span>
-                  <strong>Important:</strong> If using multi-row headers, all tables within a single uploaded Excel file (across all sheets, if applicable) are expected to have the <strong>same number of header rows</strong> as specified above.
-                </span>
-              </div>
-              {/* +++ NEW SUGGESTION BOX for Documentation +++ */}
-              <div className="flex items-start p-2 text-xs rounded-md bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-700/50 text-green-700 dark:text-green-400 mt-2">
-                <BookOpenCheck className="h-4 w-4 mr-2 flex-shrink-0 mt-0.5" />
-                <span>
-                  We highly recommend reviewing the 
-                  <a 
-                    href="https://guidance-arch.github.io/TransformEXLAi-Guide/" // Replace with your actual documentation link for this feature
-                    target="_blank" 
-                    rel="noopener noreferrer"
-                    className="font-medium underline hover:text-green-800 dark:hover:text-green-300 mx-1"
-                  >
-                    documentation
-                  </a> 
-                  for this feature before use.
-                </span>
-              </div>
-              {/* +++ END NEW SUGGESTION BOX +++ */}
-          {isMultiHeaderMode && (
-            <div className="pl-6 space-y-2"> {/* Indent if checkbox is checked */}
-              <Label htmlFor="header-depth-input" className="text-sm font-medium text-muted-foreground">
-                Number of header rows <span className="text-destructive">*</span>
-              </Label>
-              <Input
-                id="header-depth-input"
-                type="number"
-                value={headerDepth}
-                onChange={(e) => {
-                    const val = e.target.value;
-                    if (val === "") {
-                        setHeaderDepth(""); // Allow empty input for user to clear
-                    } else {
-                        const num = parseInt(val, 10);
-                        if (!isNaN(num) && num >= 1 && num <= 10) { // Min 1, Max 10 (or your preferred limit)
-                            setHeaderDepth(num);
-                        } else if (!isNaN(num) && num < 1) {
-                            setHeaderDepth(1); // Correct to min if below
-                        }
-                        // Do nothing if it's NaN or above max, keep current valid value or empty string
-                    }
-                }}
-                onBlur={() => { // Ensure a valid number on blur if input was left invalid/empty
-                    if (typeof headerDepth === 'string' && headerDepth === "") {
-                        setHeaderDepth(1); // Default to 1 if left empty
-                    } else if (typeof headerDepth === 'number' && headerDepth < 1) {
-                        setHeaderDepth(1);
-                    }
-                }}
-                placeholder="e.g., 2"
-                className="max-w-xs"
-                min="1"
-                max="10" // Sensible max to prevent huge reads
-                disabled={!selectedDatasetId || loadingDatasets || !!datasetError || isUploading || processingStage === 'uploading'}
-              />
-              <p className="text-xs text-muted-foreground">
-                Specify how many rows at the top of your tables constitute the headers.
-              </p>
+            <div className="flex items-center text-sm text-muted-foreground animate-pulse">
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading Workspace...
             </div>
           )}
-           <p className="text-xs text-muted-foreground pt-1">
-             Enable this if your Excel files have titles spanning multiple rows. This setting applies to the next batch of files you add.
+          {!loadingDatasets && datasetError && !availableDatasets.length && (
+            <Alert variant="destructive" className="animate-shake">
+              <Terminal className="h-4 w-4" />
+              <AlertTitle>No Workspace Found</AlertTitle>
+              <AlertDescription>
+                {datasetError}
+              </AlertDescription>
+            </Alert>
+          )}
+          {!loadingDatasets && !datasetError && (
+            <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+              <Select
+                value={selectedDatasetId}
+                onValueChange={setSelectedDatasetId}
+                disabled={
+                  isUploading ||
+                  processingStage === 'uploading'
+                }
+              >
+                <SelectTrigger id="dataset-select" className="w-full sm:flex-grow sm:w-auto focus:ring-2 focus:ring-primary transition-all duration-200">
+                  <SelectValue placeholder="Select a Workspace or create new..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {availableDatasets.length === 0 ? (
+                    <div className="px-4 py-2 text-sm text-muted-foreground italic">
+                      No workspace found. Create one?
+                    </div>
+                  ) : (
+                    availableDatasets.map(ds => (
+                      <SelectItem key={ds.datasetId} value={ds.datasetId}>
+                        <span className="hover:underline transition-colors">{ds.datasetId}</span>
+                      </SelectItem>
+                    ))
+                  )}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+          <p className="text-xs text-muted-foreground pt-1">
+            Select the Workspace where your uploaded files will be processed, or create a new one.
           </p>
         </div>
-        {/* +++ END NEW SECTION +++ */}
-<div className="pt-3 border-t mt-3"> {/* Optional separator */}
-    <div className="flex items-center space-x-2">
-        <Checkbox
-            id="ai-smart-cleanup-toggle"
-            checked={enableAiSmartCleanup}
-            onCheckedChange={(checked) => setEnableAiSmartCleanup(Boolean(checked))}
-            disabled={!selectedDatasetId || loadingDatasets || !!datasetError || isUploading || processingStage === 'uploading'}
-        />
-        <Label htmlFor="ai-smart-cleanup-toggle" className="text-sm font-medium">
-            Enable AI Smart Data Cleaning (Beta)
-        </Label>
-    </div>
-    <p className="text-xs text-muted-foreground pl-6 pt-1">
-        AI will attempt to standardize formats (e.g., dates to YYYY-MM-DD) and normalize text in your data. May increase processing time.
-    </p>
-    {enableAiSmartCleanup && (
-    <div className="pl-6 pt-3 space-y-2">
-        <Label htmlFor="text-normalization-mode-select" className="text-sm font-medium text-muted-foreground">
-            Text Normalization Mode:
-        </Label>
-        <Select
-            value={textNormalizationMode}
-            onValueChange={setTextNormalizationMode}
-            disabled={!selectedDatasetId || loadingDatasets || !!datasetError || isUploading || processingStage === 'uploading'}
-        >
-            <SelectTrigger id="text-normalization-mode-select" className="w-full sm:w-[280px] text-xs h-9">
-                <SelectValue placeholder="Select text normalization mode..." />
-            </SelectTrigger>
-            <SelectContent>
-                {TEXT_NORMALIZATION_MODES.map(mode => (
-                    <SelectItem key={mode.value} value={mode.value} className="text-xs">
-                        {mode.label}
-                    </SelectItem>
-                ))}
-            </SelectContent>
-        </Select>
-        <p className="text-xs text-muted-foreground">
-            Choose how AI should normalize text data (e.g., case, spacing). Applies to string columns.
-        </p>
-    </div>
-)}
-</div>
+        {/* --- END Dataset Selector Section --- */}
 
-      {/* --- Upload Area and File List --- */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div id="tour-step-upload-area" className="md:col-span-2 space-y-6">
-          {/* Upload Area */}
-          <UploadArea
-            onFilesAdded={handleFilesAdded}
-            // Disable adding files if no dataset is selected, or during loading/error/upload
-            disabled={!selectedDatasetId || loadingDatasets || !!datasetError || isUploading || processingStage === 'uploading' ||
-      files.length >= MAX_CONCURRENT_FILES}
-          />
-{files.length >= MAX_CONCURRENT_FILES && (
-  <p className="text-sm text-muted-foreground text-center mt-2">
-      Maximum of {MAX_CONCURRENT_FILES} files reached. Please upload or remove files.
-  </p>
-)}
-          {/* File List */}
-          {files.length > 0 && (
-            <div id="tour-step-file-list-actions">
-             <FileList
-                files={files}
-                onRemove={removeFile}
-                onUpload={handleUpload}
-                onClearCompleted={clearCompleted}
-                isProcessing={processingStage === 'uploading' || isUploading} // Simplified processing state check
-                isLoading={isUploading} // Pass loading state specifically for upload button
-             />
-             </div>
+        {/* --- Data Cleaning & Transformation Section (Collapsible) --- */}
+        <div className="p-4 border rounded-lg bg-card shadow-sm space-y-2">
+          <button
+            type="button"
+            className="flex items-center w-full justify-between focus:outline-none hover:bg-accent/30 transition-colors duration-150"
+            onClick={() => setShowDataCleaning((prev) => !prev)}
+            aria-expanded={showDataCleaning}
+            aria-controls="data-cleaning-collapse"
+          >
+            <span className="flex items-center">
+              <BookOpenCheck className="h-5 w-5 mr-2 text-green-600 dark:text-green-400 animate-bounce-slow" />
+              <span className="font-semibold text-base">Data Cleaning & Transformation</span>
+            </span>
+            <span className="ml-2">
+              {showDataCleaning ? (
+                <svg className="h-5 w-5 text-muted-foreground transition-transform duration-200 rotate-180" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                </svg>
+              ) : (
+                <svg className="h-5 w-5 text-muted-foreground transition-transform duration-200" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                </svg>
+              )}
+            </span>
+          </button>
+          {showDataCleaning && (
+            <div id="data-cleaning-collapse" className="space-y-6 pt-2 animate-fade-in">
+              {/* --- Info about data alteration and docs warning --- */}
+              <Alert variant="default" className="text-xs p-2 bg-yellow-50 dark:bg-yellow-900/30 border-yellow-200 dark:border-yellow-700/50 mb-2 animate-wiggle">
+                <AlertTriangle className="h-4 w-4 text-yellow-600 dark:text-yellow-400 animate-pulse" />
+                <AlertTitle className="text-yellow-700 dark:text-yellow-300 font-medium">Important</AlertTitle>
+                <AlertDescription className="text-yellow-600 dark:text-yellow-400">
+                  These features will alter your data for better formatting and structure. <strong>Using them without carefully reading the documentation can result in unexpected changes to your data.</strong> Please review the documentation before enabling.
+                </AlertDescription>
+              </Alert>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                {/* Multi-Header Feature */}
+                <div className="space-y-2">
+                  <div className="flex items-center space-x-2">
+                    <Checkbox
+                      id="multi-header-toggle"
+                      checked={isMultiHeaderMode}
+                      onCheckedChange={(checked) => setIsMultiHeaderMode(Boolean(checked))}
+                      disabled={!selectedDatasetId || loadingDatasets || !!datasetError || isUploading || processingStage === 'uploading'}
+                    />
+                    <Label htmlFor="multi-header-toggle" className="text-sm font-medium">
+                      Multi-row Headers
+                    </Label>
+                  </div>
+                  <div className="flex items-start p-2 text-xs rounded-md bg-orange-50 dark:bg-orange-900/30 border border-orange-200 dark:border-orange-700/50 text-orange-700 dark:text-orange-300 animate-fade-in">
+                    <AlertTriangle className="h-4 w-4 mr-2 flex-shrink-0 mt-0.5 animate-pulse" />
+                    <span>
+                      <strong>Alpha:</strong> All tables in a file must have the same number of header rows.
+                    </span>
+                  </div>
+                  {isMultiHeaderMode && (
+                    <div className="space-y-1 animate-fade-in">
+                      <Label htmlFor="header-depth-input" className="text-xs font-medium text-muted-foreground">
+                        Number of header rows <span className="text-destructive">*</span>
+                      </Label>
+                      <Input
+                        id="header-depth-input"
+                        type="number"
+                        value={headerDepth}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          if (val === "") {
+                            setHeaderDepth("");
+                          } else {
+                            const num = parseInt(val, 10);
+                            if (!isNaN(num) && num >= 1 && num <= 10) {
+                              setHeaderDepth(num);
+                            } else if (!isNaN(num) && num < 1) {
+                              setHeaderDepth(1);
+                            }
+                          }
+                        }}
+                        onBlur={() => {
+                          if (typeof headerDepth === 'string' && headerDepth === "") {
+                            setHeaderDepth(1);
+                          } else if (typeof headerDepth === 'number' && headerDepth < 1) {
+                            setHeaderDepth(1);
+                          }
+                        }}
+                        placeholder="e.g., 2"
+                        className="max-w-xs text-xs focus:ring-2 focus:ring-primary transition-all duration-200"
+                        min="1"
+                        max="10"
+                        disabled={!selectedDatasetId || loadingDatasets || !!datasetError || isUploading || processingStage === 'uploading'}
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Applies to next files you add.
+                      </p>
+                    </div>
+                  )}
+                </div>
+                {/* AI Smart Cleanup */}
+                <div className="space-y-2">
+                  <div className="flex items-center space-x-2">
+                    <Checkbox
+                      id="ai-smart-cleanup-toggle"
+                      checked={enableAiSmartCleanup}
+                      onCheckedChange={(checked) => setEnableAiSmartCleanup(Boolean(checked))}
+                      disabled={!selectedDatasetId || loadingDatasets || !!datasetError || isUploading || processingStage === 'uploading'}
+                    />
+                    <Label htmlFor="ai-smart-cleanup-toggle" className="text-sm font-medium">
+                      AI Smart Data Cleaning
+                    </Label>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Standardizes formats (e.g., dates, text). May increase processing time.
+                  </p>
+                  {enableAiSmartCleanup && (
+                    <div className="space-y-1 animate-fade-in">
+                      <Label htmlFor="text-normalization-mode-select" className="text-xs font-medium text-muted-foreground">
+                        Text Normalization Mode:
+                      </Label>
+                      <Select
+                        value={textNormalizationMode}
+                        onValueChange={setTextNormalizationMode}
+                        disabled={!selectedDatasetId || loadingDatasets || !!datasetError || isUploading || processingStage === 'uploading'}
+                      >
+                        <SelectTrigger id="text-normalization-mode-select" className="w-full sm:w-[180px] text-xs h-8 focus:ring-2 focus:ring-primary transition-all duration-200">
+                          <SelectValue placeholder="Select mode..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {TEXT_NORMALIZATION_MODES.map(mode => (
+                            <SelectItem key={mode.value} value={mode.value} className="text-xs">
+                              {mode.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+                </div>
+                {/* Unpivot/Melt Feature */}
+                <div className="space-y-2">
+                  <div className="flex items-center space-x-2">
+                    <Checkbox
+                      id="unpivot-data-toggle"
+                      checked={enableUnpivot}
+                      onCheckedChange={(checked) => setEnableUnpivot(Boolean(checked))}
+                      disabled={!selectedDatasetId || loadingDatasets || !!datasetError || isUploading || processingStage === 'uploading'}
+                    />
+                    <Label htmlFor="unpivot-data-toggle" className="text-sm font-medium">
+                      Unpivot / Melt Data
+                    </Label>
+                  </div>
+                  <div className="flex items-start p-2 text-xs rounded-md bg-orange-50 dark:bg-orange-900/30 border border-orange-200 dark:border-orange-700/50 text-orange-700 dark:text-orange-300 animate-fade-in">
+                    <AlertTriangle className="h-4 w-4 mr-2 flex-shrink-0 mt-0.5 animate-pulse" />
+                    <span>
+                      <strong>Alpha:</strong> This feature is in alpha phase. The melt configuration will be applied to <strong>all tables</strong> contained in your file. To avoid unexpected results, please consult the documentation before usage.
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Reshape wide data to long format.
+                  </p>
+                  {enableUnpivot && (
+                    <div className="space-y-2 animate-fade-in">
+                      <Label htmlFor="unpivot-id-cols-input" className="text-xs font-medium text-muted-foreground">
+                        Identifier Columns (comma-separated) <span className="text-destructive">*</span>
+                      </Label>
+                      <Input
+                        id="unpivot-id-cols-input"
+                        type="text"
+                        value={unpivotIdCols}
+                        onChange={(e) => setUnpivotIdCols(e.target.value)}
+                        placeholder="e.g., Date, ProductID"
+                        className="text-xs h-8 focus:ring-2 focus:ring-primary transition-all duration-200"
+                        disabled={!selectedDatasetId || loadingDatasets || !!datasetError || isUploading || processingStage === 'uploading'}
+                      />
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <div>
+                          <Label htmlFor="unpivot-var-name-input" className="text-xs font-medium text-muted-foreground">
+                            Attribute Column Name
+                          </Label>
+                          <Input
+                            id="unpivot-var-name-input"
+                            type="text"
+                            value={unpivotVarName}
+                            onChange={(e) => setUnpivotVarName(e.target.value)}
+                            placeholder="e.g., MetricName"
+                            className="text-xs h-8 focus:ring-2 focus:ring-primary transition-all duration-200"
+                            disabled={!selectedDatasetId || loadingDatasets || !!datasetError || isUploading || processingStage === 'uploading'}
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="unpivot-value-name-input" className="text-xs font-medium text-muted-foreground">
+                            Value Column Name
+                          </Label>
+                          <Input
+                            id="unpivot-value-name-input"
+                            type="text"
+                            value={unpivotValueName}
+                            onChange={(e) => setUnpivotValueName(e.target.value)}
+                            placeholder="e.g., MetricValue"
+                            className="text-xs h-8 focus:ring-2 focus:ring-primary transition-all duration-200"
+                            disabled={!selectedDatasetId || loadingDatasets || !!datasetError || isUploading || processingStage === 'uploading'}
+                          />
+                        </div>
+                      </div>
+                      <Alert variant="default" className="mt-2 text-xs p-2 bg-blue-50 dark:bg-blue-900/30 border-blue-200 dark:border-blue-700/50 animate-wiggle">
+                        <Info className="h-4 w-4 text-blue-600 dark:text-blue-400 animate-pulse" />
+                        <AlertTitle className="text-blue-700 dark:text-blue-300 font-medium">How Unpivot Works</AlertTitle>
+                        <AlertDescription className="text-blue-600 dark:text-blue-400">
+                          Example: <code>ID, Month1_Sales, Month2_Sales</code> with <code>ID</code> as identifier becomes <code>ID, Attribute, Value</code> rows.
+                        </AlertDescription>
+                      </Alert>
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div className="flex items-center justify-between mt-4">
+                <div className="flex items-center space-x-2">
+                  <a
+                    href="https://guidance-arch.github.io/TransformEXLAi-Guide/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-medium underline hover:text-green-800 dark:hover:text-green-300 text-xs transition-colors"
+                  >
+                    See documentation for details on these features
+                  </a>
+                  <span className="ml-2 animate-bounce text-green-500 text-xs">✨</span>
+                </div>
+              </div>
+            </div>
           )}
         </div>
+        {/* --- END Data Cleaning & Transformation Section --- */}
 
-        {/* Status and History */}
-        <div className="space-y-6">
-          <ProcessingStatus
-            stage={processingStage}
-            filesCount={totalFiles}
-            errorCount={filesWithError}
-          />
-          {/* <UploadHistory /> */}
+        {/* --- Upload Area and File List --- */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div id="tour-step-upload-area" className="md:col-span-2 space-y-6">
+            {/* --- UploadArea with overlay when processing or upload complete --- */}
+            <div className="relative">
+              <UploadArea
+                onFilesAdded={handleFilesAdded}
+                disabled={
+                  !selectedDatasetId ||
+                  loadingDatasets ||
+                  !!datasetError ||
+                  isUploading ||
+                  processingStage === 'uploading' ||
+                  processingStage === 'processing_backend' ||
+                  processingStage === 'completed_with_errors' ||
+                  processingStage === 'completed_all' ||
+                  files.length >= MAX_CONCURRENT_FILES
+                }
+              />
+              {(isUploading ||
+                processingStage === 'uploading' ||
+                processingStage === 'processing_backend') && (
+                <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-card/80 backdrop-blur-sm rounded-lg animate-fade-in">
+                  <Loader2 className="h-8 w-8 text-primary animate-spin mb-2" />
+                  <span className="text-primary font-semibold text-sm animate-pulse">
+                    Processing... Please wait
+                  </span>
+                </div>
+              )}
+              {/* Upload Complete Animation (centered over upload area) */}
+              {showUploadSuccess && (
+                <div className="absolute inset-0 z-[10001] flex items-center justify-center pointer-events-none">
+                  <div className="bg-card/90 border border-green-300 dark:border-green-700 rounded-xl shadow-lg px-8 py-6 flex flex-col items-center animate-fade-in-fast">
+                    <span className="flex items-center mb-2">
+                      <svg className="h-10 w-10 text-green-600 animate-pop-in" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2" fill="white" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 13l3 3 7-7" className="animate-draw-tick" />
+                      </svg>
+                    </span>
+                    <span className="text-green-700 dark:text-green-300 font-semibold text-lg animate-fade-in-fast">Upload Complete!</span>
+                  </div>
+                  <style>{`
+                    .animate-fade-in-fast { animation: fadeIn 0.3s; }
+                    .animate-pop-in { animation: popIn 0.4s cubic-bezier(.68,-0.55,.27,1.55); }
+                    @keyframes popIn { 0% { transform: scale(0.7); opacity: 0; } 80% { transform: scale(1.1); opacity: 1; } 100% { transform: scale(1); opacity: 1; } }
+                    .animate-draw-tick { stroke-dasharray: 24; stroke-dashoffset: 24; animation: drawTick 0.5s 0.2s forwards; }
+                    @keyframes drawTick { to { stroke-dashoffset: 0; } }
+                  `}</style>
+                </div>
+              )}
+            </div>
+            {files.length >= MAX_CONCURRENT_FILES && (
+              <p className="text-sm text-muted-foreground text-center mt-2 animate-shake">
+                Maximum of {MAX_CONCURRENT_FILES} files reached. Please upload or remove files.
+              </p>
+            )}
+            {files.length > 0 ? (
+              <div id="tour-step-file-list-actions">
+                <FileList
+                  files={files}
+                  onRemove={removeFile}
+                  onUpload={handleUpload}
+                  onClearCompleted={clearCompleted}
+                  isProcessing={processingStage === 'uploading' || isUploading}
+                  isLoading={isUploading}
+                />
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center text-muted-foreground text-xs mt-4 animate-fade-in">
+                <span className="mb-2 animate-bounce text-3xl">⬆️</span>
+                <span>Drag & drop your Excel files here to get started!</span>
+              </div>
+            )}
+          </div>
+          <div className="space-y-6">
+            <ProcessingStatus
+              stage={processingStage}
+              filesCount={totalFiles}
+              errorCount={filesWithError}
+            />
+            {/* Fun encouragement */}
+            {processingStage === 'idle' && totalFiles === 0 && (
+              <div className="rounded-lg bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-700/50 p-3 text-xs text-green-700 dark:text-green-300 flex items-center gap-2 animate-fade-in">
+                <span className="animate-bounce">🚀</span>
+                <span>Ready to transform your data? Upload your first file!</span>
+              </div>
+            )}
+            {processingStage === 'completed_all' && (
+              <div className="rounded-lg bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700/50 p-3 text-xs text-blue-700 dark:text-blue-300 flex items-center gap-2 animate-fade-in">
+                <span className="animate-spin">🎉</span>
+                <span>All files processed successfully! Great job!</span>
+              </div>
+            )}
+            {processingStage === 'completed_with_errors' && (
+              <div className="rounded-lg bg-yellow-50 dark:bg-yellow-900/30 border border-yellow-200 dark:border-yellow-700/50 p-3 text-xs text-yellow-700 dark:text-yellow-300 flex items-center gap-2 animate-shake">
+                <span className="animate-pulse">⚠️</span>
+                <span>Some files had issues. Check error messages for details.</span>
+              </div>
+            )}
+          </div>
         </div>
       </div>
-    </div>
+      {/* Joyride (keep at root for overlay) */}
+      <Joyride
+        steps={uploadTourSteps}
+        run={runTour}
+        continuous
+        showProgress
+        showSkipButton
+        callback={handleJoyrideCallback}
+        styles={{
+          options: {
+            zIndex: 10000,
+            arrowColor: 'hsl(var(--card))',
+            backgroundColor: 'hsl(var(--card))',
+            primaryColor: 'hsl(var(--primary))',
+            textColor: 'hsl(var(--card-foreground))',
+          },
+          tooltipContainer: {
+            textAlign: "left",
+          },
+          buttonNext: {
+            backgroundColor: "hsl(var(--primary))",
+            color: "hsl(var(--primary-foreground))",
+            borderRadius: "var(--radius)",
+          },
+          buttonBack: {
+            marginRight: 10,
+            color: "hsl(var(--primary))",
+          },
+          buttonSkip: {
+            color: "hsl(var(--muted-foreground))",
+          }
+        }}
+        locale={{
+          last: 'End Tour',
+          skip: 'Skip Tour',
+          next: 'Next',
+          back: 'Back',
+        }}
+      />
+      {/* Animations CSS (Tailwind custom classes) */}
+      <style>{`
+        .animate-fade-in { animation: fadeIn 0.7s; }
+        .animate-bounce-slow { animation: bounce 2s infinite; }
+        .animate-wiggle { animation: wiggle 1.2s infinite; }
+        .animate-shake { animation: shake 0.5s; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px);} to { opacity: 1; transform: none; } }
+        @keyframes wiggle { 0%, 100% { transform: rotate(-2deg);} 50% { transform: rotate(2deg);} }
+        @keyframes shake { 0% { transform: translateX(0);} 25% { transform: translateX(-4px);} 50% { transform: translateX(4px);} 75% { transform: translateX(-4px);} 100% { transform: translateX(0);} }
+      `}</style>
     </>
   );
+
+
+
 }
 
