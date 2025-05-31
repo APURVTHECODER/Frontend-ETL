@@ -896,54 +896,37 @@ const filteredData = useMemo(() => {
 // (useCallback, toast, getErrorMessage, htmlToImage, saveAs, axiosInstance, 
 // ActiveVisualizationConfig, BackendChartConfig, RowData) are correctly defined.
 
-const handleExcelDownload = useCallback(async () => {
-    // console.log("[DEBUG] handleExcelDownload: Entry point");
+// Inside BigQueryTableViewer.tsx
 
+const handleExcelDownload = useCallback(async () => {
     if (!jobId || !sql || !jobLocation) {
-        console.error("[DEBUG] handleExcelDownload: Missing Job ID, SQL, or Location for download.");
+        console.error("handleExcelDownload: Missing Job ID, SQL, or Location.");
         toast({ variant: "destructive", title: "Download Error", description: "Cannot download report: Missing required job info." });
         return;
     }
 
+    if (filteredData.length === 0 && jobResults && jobResults.rows.length > 0) {
+        toast({
+            variant: "default",
+            title: "Empty Filtered Set",
+            description: "Current filters result in no data. The 'Query Results' sheet in the report will reflect this (empty or headers only).",
+            duration: 5000,
+        });
+    }
+
     setIsDownloadingExcel(true);
-    toast({ title: "Preparing Report...", description: "Generating Excel report with data and chart (if active)...", duration: 3000 });
+    toast({ title: "Preparing Report...", description: "Generating Excel report...", duration: 3000 });
 
     let chartImageBase64: string | null = null;
     let backendChartConfigPayload: BackendChartConfig | null = null;
-    let chartDataForPayload: RowData[] | null = null;
-    let dataUrl: string | null = null; 
 
-    // --- Log states BEFORE the chart capture condition ---
-    // console.log("[DEBUG] handleExcelDownload: Before chart capture check:");
-    // console.log(`[DEBUG]   activeVisualization:`, activeVisualization ? JSON.stringify(activeVisualization) : 'null');
-    // console.log(`[DEBUG]   chartContainerRef.current exists:`, !!chartContainerRef.current);
-    // console.log(`[DEBUG]   currentOutputTab:`, currentOutputTab);
-    // console.log(`[DEBUG]   filteredData.length:`, filteredData.length);
-
-    // --- Capture chart image if a visualization is active and rendered ON THE VISUALIZE TAB ---
     if (activeVisualization && chartContainerRef.current && currentOutputTab === 'visualize' && filteredData.length > 0) {
-        // console.log("[DEBUG] handleExcelDownload: ALL conditions for chart capture MET. Attempting image capture...");
         try {
-            // console.log("[DEBUG] htmlToImage: About to call toPng on ref:", chartContainerRef.current);
-            dataUrl = await htmlToImage.toPng(chartContainerRef.current, { 
-                quality: 0.95, 
-                pixelRatio: 1.5,
-                // You might add a filter here if specific elements (like Monaco editor if it's somehow included)
-                // are causing issues, though it shouldn't be if chartContainerRef only wraps the chart.
-                // filter: (node) => { ... } 
-            });
-            // console.log("[DEBUG] htmlToImage: toPng call completed. dataUrl (first 100 chars):", dataUrl ? dataUrl.substring(0, 100) : "null or undefined");
-
+            const dataUrl = await htmlToImage.toPng(chartContainerRef.current, { quality: 0.95, pixelRatio: 1.5 });
             if (dataUrl && dataUrl.includes(',')) {
                 chartImageBase64 = dataUrl.split(',')[1];
-                // console.log("[DEBUG] htmlToImage: Split successful. chartImageBase64 is SET (length:", chartImageBase64?.length, ").");
-            } else {
-                // console.warn("[DEBUG] htmlToImage: dataUrl was null, undefined, or did not contain ','. dataUrl:", dataUrl);
             }
-            
-            // Map frontend ActiveVisualizationConfig to BackendChartConfig
-            // This ensures the keys sent to the backend match its Pydantic model
-            if (activeVisualization) { // Redundant check but safe
+            if (activeVisualization) {
                 backendChartConfigPayload = {
                     type: activeVisualization.chart_type,
                     x_axis: activeVisualization.x_axis_column,
@@ -951,26 +934,9 @@ const handleExcelDownload = useCallback(async () => {
                     rationale: activeVisualization.rationale,
                 };
             }
-            chartDataForPayload = filteredData; // Send the data that powered the captured chart
-
         } catch (imgError: any) {
-            console.error("[DEBUG] handleExcelDownload: FAILED to capture chart image (htmlToImage.toPng threw an error):", imgError);
-            // console.log("[DEBUG] htmlToImage: Value of dataUrl in catch block:", dataUrl); // Log dataUrl state in catch
-            if (imgError && imgError.message) {
-                console.error("[DEBUG]   Error message:", imgError.message);
-            }
-            if (imgError && imgError.stack) {
-                console.error("[DEBUG]   Error stack:", imgError.stack);
-            }
-            toast({ title: "Chart Capture Failed", description: `Could not generate chart image: ${imgError.message || 'Unknown error'}. Proceeding with data export.`, variant: "default", duration: 5000 });
-            // chartImageBase64, backendChartConfigPayload, chartDataForPayload will remain null or their initial values
+            toast({ title: "Chart Capture Failed", description: `Could not generate chart image: ${imgError.message || 'Unknown error'}. Report will proceed without the chart image.`, variant: "default", duration: 5000 });
         }
-    } else {
-        // console.warn("[DEBUG] handleExcelDownload: ONE OR MORE conditions for chart capture NOT MET (activeViz, ref, currentTab, or data).");
-        if (!activeVisualization) console.warn("[DEBUG]   Reason: activeVisualization is falsy.");
-        if (!chartContainerRef.current) console.warn("[DEBUG]   Reason: chartContainerRef.current is falsy/null (Chart component might not be mounted/visible if not on Visualize tab).");
-        if (currentOutputTab !== 'visualize') console.warn(`[DEBUG]   Reason: currentOutputTab is '${currentOutputTab}', not 'visualize'.`);
-        if (filteredData.length === 0) console.warn("[DEBUG]   Reason: filteredData is empty.");
     }
 
     try {
@@ -980,13 +946,19 @@ const handleExcelDownload = useCallback(async () => {
             location: jobLocation,
             chart_image_base64: chartImageBase64,
             chart_config: backendChartConfigPayload,
-            chart_data: chartDataForPayload,
+            
+            // Send the filteredData for both main results and chart data context
+            data_override: filteredData, // Send the filteredData array directly
+            schema_override: jobResults?.schema, // Send the original schema
+            
+            // If a chart is active, its data context should also be the filtered set
+            chart_data: (activeVisualization && filteredData.length > 0) ? filteredData : null,
         };
-        
-        // console.log("[DEBUG] FINAL PAYLOAD CHECK: chart_image_base64 is " + (chartImageBase64 ? `PRESENT (length: ${chartImageBase64.length})` : "NULL or EMPTY"));
-        // console.log("[DEBUG] FINAL PAYLOAD CHECK: chart_config is " + (backendChartConfigPayload ? JSON.stringify(backendChartConfigPayload) : "NULL"));
-        
-        // console.log("[DEBUG] Requesting Excel export with payload (actual values):", payload );
+
+        // console.log("[DEBUG] Excel Export Payload:", payload);
+        // console.log("[DEBUG]   data_override length:", payload.data_override.length);
+        // console.log("[DEBUG]   chart_data length:", payload.chart_data ? payload.chart_data.length : "null");
+
 
         const response = await axiosInstance.post('/api/export/query-to-excel', payload, {
             responseType: 'blob',
@@ -1004,16 +976,17 @@ const handleExcelDownload = useCallback(async () => {
         toast({ title: "Download Started", description: `Report "${filename}" should begin downloading.`, variant: "default" });
 
     } catch (error: any) {
-        console.error("[DEBUG] handleExcelDownload: Excel download API call failed:", error);
+        console.error("handleExcelDownload API call failed:", error);
         const errorMessage = getErrorMessage(error);
         toast({ variant: "destructive", title: "Download Failed", description: errorMessage });
     } finally {
         setIsDownloadingExcel(false);
-        // console.log("[DEBUG] handleExcelDownload: Exiting function.");
     }
 }, [
     jobId, sql, jobLocation, toast, getErrorMessage, setIsDownloadingExcel,
-    activeVisualization, chartContainerRef, currentOutputTab, filteredData,
+    activeVisualization, chartContainerRef, currentOutputTab,
+    filteredData, 
+    jobResults?.schema // Ensure jobResults.schema is included if schema_override is used
 ]);
     
 
