@@ -183,6 +183,12 @@ const BigQueryTableViewer: React.FC = () => {
         // +++ MODIFICATION START: Add userRole state +++
         // +++ MODIFICATION END +++
     // +++ MODIFICATION START: State for AI Mode and Selections +++
+    // Inside BigQueryTableViewer.tsx, near other useState hooks
+    const [lastAiGeneratedSql, setLastAiGeneratedSql] = useState<string | null>(null);
+    const [lastAiPromptForSql, setLastAiPromptForSql] = useState<string | null>(null);
+    const [lastAiModeForSql, setLastAiModeForSql] = useState<string | null>(null);
+    const [lastAiSelectedTablesForSql, setLastAiSelectedTablesForSql] = useState<string[] | null>(null);
+    const [lastAiSelectedColumnsForSql, setLastAiSelectedColumnsForSql] = useState<string[] | null>(null);
     const [aiMode, setAiMode] = useState<'AUTO' | 'SEMI_AUTO'>('AUTO');
     const [selectedAiTables, setSelectedAiTables] = useState<Set<string>>(new Set());
     const [selectedAiColumns, setSelectedAiColumns] = useState<Set<string>>(new Set());
@@ -964,15 +970,133 @@ const filteredData = useMemo(() => {
 
 
 
-    // fetchJobStatus: Mostly unchanged, triggers fetchJobResults
-    const fetchJobStatus = useCallback(async (currentJobId: string, loc: string) => { 
-        
-        // console.log(`Polling job: ${currentJobId}`);
-        
-        setJobError(""); try { const r=await axiosInstance.get<JobStatusResponse>(`/api/bigquery/jobs/${currentJobId}?location=${loc}`); const d=r.data; setJobStatus(d); if(d.state==='DONE'){ stopPolling(); setIsRunningJob(false); if(d.error_result){ const errMsg=`Job failed: ${d.error_result.message||d.error_result.reason||'Unknown'}`; setJobError(errMsg); setJobResults(null); addToHistory({sql,success:false}); } else { setJobError(""); setCurrentOutputTab("results"); // Switch to results tab on SUCCESSFUL completion
-                 if(d.statement_type==='SELECT'||d.statement_type===undefined){ await fetchJobResults(currentJobId,loc); // Fetch first page
-                } else { setJobResults({rows:[],total_rows_in_result_set:d.num_dml_affected_rows??0,schema:[]}); addToHistory({sql,success:true,rowCount:d.num_dml_affected_rows}); } } } else { setIsRunningJob(true); } } catch (e:any){ console.error("Error fetching status:",e); const m=getErrorMessage(e); if(e.response?.status===404){ setJobError(`Job ${currentJobId} not found.`); stopPolling(); setIsRunningJob(false); addToHistory({sql,success:false}); } else { setJobError(`Fetch status failed: ${m}`); } } }, [stopPolling, fetchJobResults, sql, addToHistory, getErrorMessage]); // Added setCurrentOutputTab dependency indirectly via fetchJobResults
+// Inside BigQueryTableViewer.tsx
 
+// Ensure you have a type for the payload to the new logging endpoint, if not already defined
+// This should match the Pydantic model 'FinalizeNLQueryLogRequest' on your backend
+interface FinalizeNLQueryLogPayload {
+    final_job_status: "SUCCESS" | "FAILED" | "SUCCESS_DML"; // More specific statuses
+    job_error_message?: string | null;
+    rows_processed?: number | null;     // For SELECT queries (from total_rows_in_result_set)
+    rows_affected_dml?: number | null;  // For DML queries
+    bytes_processed?: number | null;
+    duration_ms?: number | null;
+}
+
+
+const fetchJobStatus = useCallback(async (currentJobId: string, loc: string) => {
+    // console.log(`Polling job: ${currentJobId} in location ${loc}`);
+    setJobError(""); // Clear previous job error at the start of a new poll/status check
+
+    try {
+        const response = await axiosInstance.get<JobStatusResponse>(
+            `/api/bigquery/jobs/${currentJobId}?location=${loc}`
+        );
+        const jobData = response.data;
+        setJobStatus(jobData); // Update the UI with the latest job status
+
+        if (jobData.state === 'DONE') {
+            stopPolling(); // Job is finished, stop further polling for this job ID
+            setIsRunningJob(false);
+
+            const durationMs = (jobData.end_time && jobData.start_time)
+                ? Math.round((new Date(jobData.end_time).getTime() - new Date(jobData.start_time).getTime()))
+                : undefined;
+
+            if (jobData.error_result) {
+                // --- JOB FAILED ---
+                const errorMessage = `Job failed: ${jobData.error_result.message || jobData.error_result.reason || 'Unknown BigQuery error'}`;
+                setJobError(errorMessage);
+                setJobResults(null); // Clear any previous results
+                addToHistory({
+                    sql,
+                    success: false,
+                    bytesProcessed: jobData.total_bytes_processed,
+                    durationMs: durationMs
+                });
+
+                // Log final metrics for a FAILED job
+                const failureMetricsPayload: FinalizeNLQueryLogPayload = {
+                    final_job_status: "FAILED",
+                    job_error_message: errorMessage,
+                    bytes_processed: jobData.total_bytes_processed,
+                    duration_ms: durationMs,
+                };
+                axiosInstance.post(`/api/bigquery/jobs/${currentJobId}/log-final-status`, failureMetricsPayload)
+                    .then(() => console.log(`FAILED Job final metrics logged for ${currentJobId}`))
+                    .catch(err => console.error(`Error logging FAILED job final metrics for ${currentJobId}:`, err));
+
+            } else {
+                // --- JOB SUCCEEDED ---
+                setJobError(""); // Clear any previous error
+                setCurrentOutputTab("results"); // Switch to results tab
+
+                if (jobData.statement_type === 'SELECT' || jobData.statement_type === undefined /* Default to SELECT type queries */) {
+                    // For SELECT queries, fetchJobResults will be called.
+                    // The /api/bigquery/jobs/{job_id}/results backend endpoint should handle
+                    // logging the final 'SUCCESS' status and row count for SELECTs.
+                    await fetchJobResults(currentJobId, loc);
+                    // addToHistory for successful SELECT is now handled after fetchJobResults successfully updates jobResults state (in a useEffect or similar)
+                    // We still need to add a history item when fetchJobResults itself completes and we have the row count.
+                    // This part needs to be handled carefully to avoid adding to history before results are actually available.
+                    // For now, the main part of addToHistory for success will be when jobResults state is updated.
+                    // Let's assume fetchJobResults updates `jobResults` state, and a useEffect watching `jobResults` adds to history.
+                    // The logging of rows_processed for SELECT is now handled by the backend /results endpoint.
+
+                } else { // Successful DML (INSERT, UPDATE, DELETE, MERGE, etc.)
+                    const affectedRows = jobData.num_dml_affected_rows ?? 0;
+                    setJobResults({ rows: [], total_rows_in_result_set: affectedRows, schema: [] }); // Show affected rows info
+                    addToHistory({
+                        sql,
+                        success: true,
+                        rowCount: affectedRows,
+                        bytesProcessed: jobData.total_bytes_processed,
+                        durationMs: durationMs
+                    });
+
+                    // Log final metrics for a SUCCESSFUL DML job
+                    const dmlSuccessMetricsPayload: FinalizeNLQueryLogPayload = {
+                        final_job_status: "SUCCESS_DML",
+                        rows_affected_dml: affectedRows,
+                        bytes_processed: jobData.total_bytes_processed,
+                        duration_ms: durationMs,
+                    };
+                    axiosInstance.post(`/api/bigquery/jobs/${currentJobId}/log-final-status`, dmlSuccessMetricsPayload)
+                        .then(() => console.log(`SUCCESS_DML Job final metrics logged for ${currentJobId}`))
+                        .catch(err => console.error(`Error logging SUCCESS_DML job final metrics for ${currentJobId}:`, err));
+                }
+            }
+        } else { // Job is PENDING or RUNNING
+            setIsRunningJob(true);
+        }
+    } catch (e: any) {
+        console.error("Error fetching job status for ID:", currentJobId, e);
+        const errorMessage = getErrorMessage(e); // Assuming getErrorMessage is defined
+        if ((e as any).response?.status === 404) {
+            setJobError(`Job ${currentJobId} not found.`);
+            stopPolling(); // Stop polling if job is not found
+            setIsRunningJob(false);
+            addToHistory({ sql, success: false }); // Log as failure if job disappears
+        } else {
+            setJobError(`Fetching job status failed: ${errorMessage}`);
+            // Don't stop polling for transient network errors, let it retry.
+            // If it's a persistent error, user might need to cancel or it will eventually timeout.
+        }
+    }
+}, [
+    sql, // The SQL that was run to produce this job
+    stopPolling,
+    fetchJobResults,
+    addToHistory,
+    getErrorMessage,
+    setCurrentOutputTab, // From BigQueryTableViewer state
+    setJobError,         // From BigQueryTableViewer state
+    setJobResults,       // From BigQueryTableViewer state
+    setJobStatus,        // From BigQueryTableViewer state
+    setIsRunningJob      // From BigQueryTableViewer state
+    // user object (from useAuth or context) might be needed if your API requires user context for logging
+    // If so, add `user` to dependencies and ensure it's passed to API calls.
+]);
 
 
 // Assuming this is inside your BigQueryTableViewer.tsx component
@@ -1120,7 +1244,7 @@ const handleExcelDownload = useCallback(async () => {
             }
 
             // +++ MODIFICATION START: Revert to fullDatasetId for default_dataset +++
-            const payload = {
+            const payload: any = {
               sql,
               priority: "BATCH",
               use_legacy_sql: false,
@@ -1130,7 +1254,15 @@ const handleExcelDownload = useCallback(async () => {
             };
             // +++ MODIFICATION END +++
             // console.log("Job Payload:", payload);
-
+        if (sql === lastAiGeneratedSql && lastAiGeneratedSql !== null) {
+            payload.original_nl_prompt = lastAiPromptForSql;
+            payload.ai_mode_for_log = lastAiModeForSql;
+            payload.selected_tables_for_log = lastAiSelectedTablesForSql;
+            payload.selected_columns_for_log = lastAiSelectedColumnsForSql;
+            // console.log("Submitting AI-generated SQL with context:", payload);
+        } else {
+            // console.log("Submitting manually written/edited SQL:", payload);
+        }
             // Fire the request
             const r = await axiosInstance.post<JobSubmitResponse>("/api/bigquery/jobs", payload);
             const { job_id, location: jobLoc, state } = r.data;
@@ -1138,7 +1270,11 @@ const handleExcelDownload = useCallback(async () => {
             setJobId(job_id);
             setJobLocation(jobLoc || selectedDatasetMetadata.location);
             setJobStatus({ job_id, location: jobLoc || selectedDatasetMetadata.location, state: state as any });
-
+            setLastAiGeneratedSql(null);
+            setLastAiPromptForSql(null);
+            setLastAiModeForSql(null);
+            setLastAiSelectedTablesForSql(null);
+            setLastAiSelectedColumnsForSql(null)
         } catch (e: any) {
             console.error("Error submitting job:", e);
             const errMsg = `Submit failed: ${getErrorMessage(e)}`;
@@ -1157,7 +1293,7 @@ const handleExcelDownload = useCallback(async () => {
         fullDatasetId,
         selectedDatasetId,
         availableDatasets,
-        toast
+        toast, lastAiGeneratedSql, lastAiPromptForSql, lastAiModeForSql, lastAiSelectedTablesForSql, lastAiSelectedColumnsForSql
     ]);
     interface TableDataApiResponse {
         rows: RowData[]; // Assuming RowData is defined
@@ -1388,10 +1524,21 @@ const handleGenerateSql = useCallback(async () => {
         if (r.data.error) {
             setNlError(r.data.error);
             setSql(`-- AI Error: ${r.data.error}\n-- Your prompt: ${currentPrompt}`);
+            setLastAiGeneratedSql(null); // Clear if AI failed
+            setLastAiPromptForSql(null);
+            setLastAiModeForSql(null);
+            setLastAiSelectedTablesForSql(null);
+            setLastAiSelectedColumnsForSql(null);
         } else if (r.data.generated_sql) {
+            const generatedSql = r.data.generated_sql;
             setSql(r.data.generated_sql);
              toast({ title: "SQL Generated", description: "Review the query and click 'Run Query'.", variant: "default" });
-        } else {
+          setLastAiGeneratedSql(generatedSql);
+            setLastAiPromptForSql(nlPrompt); // nlPrompt is the current prompt state
+            setLastAiModeForSql(aiMode);     // aiMode is the current AI mode state
+            setLastAiSelectedTablesForSql(aiMode === 'SEMI_AUTO' ? Array.from(selectedAiTables) : null);
+            setLastAiSelectedColumnsForSql(aiMode === 'SEMI_AUTO' && selectedAiColumns.size > 0 ? Array.from(selectedAiColumns) : null);
+            } else {
             setNlError("AI did not return valid SQL.");
              setSql(`-- AI returned no SQL.\n-- Your prompt: ${currentPrompt}`);
         }
@@ -1399,6 +1546,11 @@ const handleGenerateSql = useCallback(async () => {
         const errorMsg = `Generate SQL failed: ${getErrorMessage(e)}`;
         setNlError(errorMsg);
          setSql(`-- Failed to generate SQL: ${errorMsg}\n-- Your prompt: ${currentPrompt}`);
+        setLastAiGeneratedSql(null); // Clear on error
+        setLastAiPromptForSql(null);
+        setLastAiModeForSql(null);
+        setLastAiSelectedTablesForSql(null);
+        setLastAiSelectedColumnsForSql(null);
     } finally {
         setGeneratingSql(false);
     }

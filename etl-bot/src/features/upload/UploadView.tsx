@@ -379,6 +379,7 @@ const newETLFiles: ETLFile[] = validFiles.map((file): ETLFile => {
           header_depth: file.headerDepth,
           apply_ai_smart_cleanup: file.applyAiSmartCleanup,
           original_file_name: file.name ,
+          file_size_bytes: file.size,
           text_normalization_mode: file.textNormalizationMode,
           // +++ NEW: Add unpivot settings to payload +++
           // Ensure keys match what backend API expects (e.g., enable_unpivot)
