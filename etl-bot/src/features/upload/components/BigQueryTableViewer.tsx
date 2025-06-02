@@ -1662,7 +1662,7 @@ useEffect(() => {
                     </div>
                 )}
                 {datasetError && !loadingDatasets && (
-                    <Alert variant="destructive" className="text-xs p-2">
+                    <Alert variant="default" className="text-xs p-2">
                         <Terminal className="h-3 w-3" />
                         <AlertTitle className="text-xs font-medium">No Workspace Found</AlertTitle>
                         <AlertDescription className="text-xs">{datasetError}</AlertDescription>
